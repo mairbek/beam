@@ -26,13 +26,12 @@ public class SpannerExample {
             @ProcessElement
             public void processElement(ProcessContext c) {
                 String val = c.element();
-                long id = UUID.randomUUID().getMostSignificantBits();
-                Mutation mutation = Mutation.newInsertOrUpdateBuilder("users").set("id").to(id).set("name").to(val).build();
+                Mutation mutation = Mutation.newInsertOrUpdateBuilder("users").set("key").to(UUID.randomUUID().toString()).set("name").to(val).build();
                 c.output(mutation);
             }
         })).setCoder(MutationCoder.of());
 
-        mutations.apply(SpannerIO.write("span-cloud-testing", "mairbek-df", "users"));
+        mutations.apply(SpannerIO.write("span-cloud-testing", "mairbek-df", "mydb"));
 
         p.run().waitUntilFinish();
     }

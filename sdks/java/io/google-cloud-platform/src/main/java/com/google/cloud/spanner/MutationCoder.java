@@ -40,11 +40,12 @@ public class MutationCoder extends AtomicCoder<Mutation> implements Serializable
 
         Mutation.WriteBuilder builder = Mutation.newInsertOrUpdateBuilder(write.getTable());
 
-        for (int i = 0; i < write.getValuesCount(); i++) {
+        for (int i = 0; i < write.getColumnsCount(); i++) {
             // TODO(mairbek): google proto to spanner proto???
-            builder = builder.set(write.getColumns(i)).to(write.getValues(i).getValues(0).getStringValue());
+            builder.set(write.getColumns(i)).to(write.getValues(0).getValues(i).getStringValue());
         }
 
-        return builder.build();
+        Mutation result = builder.build();
+        return result;
     }
 }

@@ -54,8 +54,6 @@ public class SpannerIO {
 
     private static class SpannerWriterFn extends DoFn<KV<String, Iterable<Mutation>>, Void> {
 
-        private static final Object lock = new Object();
-
         private final String projectId;
         private final String instanceId;
         private final String databaseId;
@@ -73,14 +71,10 @@ public class SpannerIO {
 
         @Setup
         public void setup() throws Exception {
-            synchronized (lock) {
-                System.out.println("!!!!");
-                spannerOptions = SpannerOptions.newBuilder().setProjectId(projectId).build();
-                DatabaseId db = DatabaseId.of(spannerOptions.getProjectId(), instanceId, databaseId);
-                this.service = spannerOptions.getService();
-                dbClient = service.getDatabaseClient(db);
-                System.out.println("1111");
-            }
+            spannerOptions = SpannerOptions.newBuilder().setProjectId(projectId).build();
+            DatabaseId db = DatabaseId.of(spannerOptions.getProjectId(), instanceId, databaseId);
+            this.service = spannerOptions.getService();
+            dbClient = service.getDatabaseClient(db);
         }
 
         @StartBundle
