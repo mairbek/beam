@@ -11,62 +11,70 @@ import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class SpannerIO {
 
     // TODO(mairbek): Builder BS
-    public static Write write(String projectId, String instanceId, String databaseId) {
-        return new Write(projectId, instanceId, databaseId);
+    public static Write write(String projectId, String instanceId, String databaseId, String
+            table) {
+        return new Write(projectId, instanceId, databaseId, table);
     }
 
     public static class Write
-            extends PTransform<PCollection<Mutation>, PDone> {
+            extends PTransform<PCollection<InsertOrUpdate>, PDone> {
 
         // TODO(mairbek): DatabaseId must be serializable.
         private final String projectId;
         private final String instanceId;
         private final String databaseId;
+        private final String table;
 
-        Write(String projectId, String instanceId, String databaseId) {
+        Write(String projectId, String instanceId, String databaseId, String table) {
             this.projectId = projectId;
             this.instanceId = instanceId;
             this.databaseId = databaseId;
+            this.table = table;
         }
 
         @Override
-        public PDone expand(PCollection<Mutation> input) {
-            PCollection<KV<String, Mutation>> kvs = input.apply("Guess partitions", ParDo.of(new RandomPartition()));
-            PCollection<KV<String, Iterable<Mutation>>> grouped = kvs.apply("Group by partitions", GroupByKey.<String, Mutation>create());
-            PCollection<Void> result = grouped.apply("Write mutations", ParDo.of(new SpannerWriterFn(projectId, instanceId, databaseId)));
+        public PDone expand(PCollection<InsertOrUpdate> input) {
+            PCollection<KV<String, InsertOrUpdate>> kvs = input.apply("Guess partitions", ParDo.of(new RandomPartition()));
+            PCollection<KV<String, Iterable<InsertOrUpdate>>> grouped = kvs.apply("Group by partitions", GroupByKey.<String, InsertOrUpdate>create());
+            PCollection<Void> result = grouped.apply("Write mutations", ParDo.of(new SpannerWriterFn(projectId, instanceId, databaseId, table)));
             return PDone.in(result.getPipeline());
         }
     }
 
-    private static class RandomPartition extends DoFn<Mutation, KV<String, Mutation>> {
+    private static class RandomPartition extends DoFn<InsertOrUpdate, KV<String, InsertOrUpdate>> {
         @ProcessElement
         public void processElement(ProcessContext c) {
-            Mutation mutation = c.element();
+            InsertOrUpdate mutation = c.element();
             String key = UUID.randomUUID().toString();
             c.output(KV.of(key, mutation));
         }
     }
 
-    private static class SpannerWriterFn extends DoFn<KV<String, Iterable<Mutation>>, Void> {
+    private static class SpannerWriterFn extends DoFn<KV<String, Iterable<InsertOrUpdate>>, Void> {
 
         private final String projectId;
         private final String instanceId;
         private final String databaseId;
+        private final String table;
 
         private SpannerOptions spannerOptions;
 
         private DatabaseClient dbClient;
         private Spanner service;
 
-        SpannerWriterFn(String projectId, String instanceId, String databaseId) {
+        SpannerWriterFn(String projectId, String instanceId, String databaseId, String table) {
             this.projectId = projectId;
             this.instanceId = instanceId;
             this.databaseId = databaseId;
+            this.table = table;
         }
 
         @Setup
@@ -84,8 +92,18 @@ public class SpannerIO {
 
         @ProcessElement
         public void processElement(ProcessContext ctx) throws Exception {
-            KV<String, Iterable<Mutation>> record = ctx.element();
-            dbClient.writeAtLeastOnce(record.getValue());
+            KV<String, Iterable<InsertOrUpdate>> record = ctx.element();
+            Iterable<InsertOrUpdate> writes = record.getValue();
+            List<Mutation> mutations = new ArrayList<>();
+            for (InsertOrUpdate write : writes) {
+                Mutation.WriteBuilder builder = Mutation.newInsertOrUpdateBuilder(table);
+                for (Map.Entry<String, Value> kv : write.asMap().entrySet()) {
+                    // TODO(mairbek): allow setting value
+                    builder.set(kv.getKey()).to(kv.getValue().getString());
+                }
+                mutations.add(builder.build());
+            }
+            dbClient.writeAtLeastOnce(mutations);
         }
 
         @FinishBundle

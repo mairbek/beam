@@ -1,7 +1,7 @@
 package org.apache.beam.sdk.io.spanner;
 
-import com.google.cloud.spanner.Mutation;
-import com.google.cloud.spanner.MutationCoder;
+import com.google.cloud.spanner.InsertOrUpdate;
+import com.google.cloud.spanner.InsertOrUpdateCoder;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.TextIO;
 import org.apache.beam.sdk.options.PipelineOptions;
@@ -17,20 +17,26 @@ public class SpannerExample {
         PipelineOptions options = PipelineOptionsFactory.create();
 
         Pipeline p = Pipeline.create(options);
+        // TODO(mairbek): better way to do this?
+        p.getCoderRegistry().registerCoder(InsertOrUpdate.class,
+                InsertOrUpdateCoder.class);
 
         PCollection<String> lines = p.apply(
                 "ReadLines", TextIO.Read.from("/tmp/input.txt"));
 
-        PCollection<Mutation> mutations = lines.apply("Mutate", ParDo.of(new DoFn<String, Mutation>() {
+        PCollection<InsertOrUpdate> mutations = lines.apply("Mutate", ParDo.of(new DoFn<String,
+                InsertOrUpdate>() {
             @ProcessElement
             public void processElement(ProcessContext c) {
                 String val = c.element();
-                Mutation mutation = Mutation.newInsertOrUpdateBuilder("users").set("key").to(UUID.randomUUID().toString()).set("name").to(val).build();
+                InsertOrUpdate mutation = InsertOrUpdate.builder().set("key").to(UUID
+                        .randomUUID
+                                ().toString()).set("name").to(val).build();
                 c.output(mutation);
             }
-        })).setCoder(MutationCoder.of());
+        }));
 
-        mutations.apply(SpannerIO.write("span-cloud-testing", "mairbek-df", "mydb"));
+        mutations.apply(SpannerIO.write("span-cloud-testing", "mairbek-df", "mydb", "users"));
 
         p.run().waitUntilFinish();
     }
