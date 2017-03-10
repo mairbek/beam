@@ -724,6 +724,10 @@
             <groupId>io.grpc</groupId>
             <artifactId>grpc-all</artifactId>
           </exclusion>
+          <exclusion>
+            <groupId>com.google.api.grpc</groupId>
+            <artifactId>grpc-google-common-protos</artifactId>
+          </exclusion>
         </exclusions>
       </dependency>
 
@@ -751,6 +755,12 @@
         <groupId>com.google.cloud.datastore</groupId>
         <artifactId>datastore-v1-protos</artifactId>
         <version>${datastore.proto.version}</version>
+        <exclusions>
+          <exclusion>
+            <groupId>com.google.api.grpc</groupId>
+            <artifactId>grpc-google-common-protos</artifactId>
+          </exclusion>
+        </exclusions>
       </dependency>
 
       <dependency>

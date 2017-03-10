@@ -1,6 +1,5 @@
 package com.google.cloud.spanner;
 
-import com.google.protobuf.ListValue;
 import org.apache.beam.sdk.coders.AtomicCoder;
 import org.apache.beam.sdk.coders.CoderException;
 import org.apache.beam.sdk.coders.protobuf.ProtoCoder;

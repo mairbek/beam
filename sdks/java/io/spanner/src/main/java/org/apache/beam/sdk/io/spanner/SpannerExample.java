@@ -1,10 +1,9 @@
-package org.apache.beam.examples.cookbook;
+package org.apache.beam.sdk.io.spanner;
 
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.MutationCoder;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.TextIO;
-import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.DoFn;
