@@ -22,16 +22,14 @@ public class SpannerExample {
                 InsertOrUpdateCoder.class);
 
         PCollection<String> lines = p.apply(
-                "ReadLines", TextIO.Read.from("/tmp/input.txt"));
+                "ReadLines", TextIO.Read.from("/Users/mairbek/random.txt"));
 
         PCollection<InsertOrUpdate> mutations = lines.apply("Mutate", ParDo.of(new DoFn<String,
                 InsertOrUpdate>() {
             @ProcessElement
             public void processElement(ProcessContext c) {
                 String val = c.element();
-                InsertOrUpdate mutation = InsertOrUpdate.builder().set("key").to(UUID
-                        .randomUUID
-                                ().toString()).set("name").to(val).build();
+                InsertOrUpdate mutation = InsertOrUpdate.builder().set("key").to(generateKey()).set("name").to(val).build();
                 c.output(mutation);
             }
         }));
@@ -39,6 +37,10 @@ public class SpannerExample {
         mutations.apply(SpannerIO.write("span-cloud-testing", "mairbek-df", "mydb", "users"));
 
         p.run().waitUntilFinish();
+    }
+
+    private static String generateKey() {
+        return UUID.randomUUID().toString();
     }
 
 }
