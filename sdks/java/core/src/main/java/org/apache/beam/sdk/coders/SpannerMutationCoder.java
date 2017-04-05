@@ -11,11 +11,8 @@ import com.google.cloud.spanner.ValueBinder;
 import com.google.common.io.ByteArrayDataInput;
 import com.google.common.io.ByteArrayDataOutput;
 import com.google.common.io.ByteStreams;
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+
+import java.io.*;
 import java.util.Map;
 
 /**
@@ -46,7 +43,9 @@ public class SpannerMutationCoder extends AtomicCoder<Mutation> {
           throw new UnsupportedOperationException("DELETE Mutations not supported!");
       }
 
-      ByteArrayDataOutput out = ByteStreams.newDataOutput();
+//      ByteArrayDataOutput out = ByteStreams.newDataOutput();
+
+      DataOutputStream out = new DataOutputStream(outStream);
 
       out.writeUTF(value.getOperation().name());
       out.writeUTF(value.getTable());
@@ -65,10 +64,10 @@ public class SpannerMutationCoder extends AtomicCoder<Mutation> {
           ser.writeTo(out, v);
       }
 
-      byte[] buf = out.toByteArray();
-      outStream.write(java.nio.ByteBuffer.allocate(4).putInt(buf.length).array());
-      outStream.write(buf);
-      outStream.flush();
+//      byte[] buf = out.toByteArray();
+//      outStream.write(java.nio.ByteBuffer.allocate(4).putInt(buf.length).array());
+//      outStream.write(buf);
+//      outStream.flush();
   }
 
   @Override
@@ -140,6 +139,7 @@ public class SpannerMutationCoder extends AtomicCoder<Mutation> {
 
       public void writeTo(DataOutput out, Value v) throws IOException {
           if (v.isNull()) {
+              // TODO:write boolean?
               out.writeByte(0);  //NULL indicator byte
               return;
           }
