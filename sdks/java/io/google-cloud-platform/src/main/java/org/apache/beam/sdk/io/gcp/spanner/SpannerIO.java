@@ -164,7 +164,7 @@ public class SpannerIO {
     private final String databaseId;
     private transient DatabaseClient dbClient;
     // Current batch of mutations to be written.
-    private final List<Mutation> mutations = new ArrayList();
+    private final List<Mutation> mutations = new ArrayList<>();
 
     private static final int MAX_RETRIES = 5;
     private static final FluentBackoff BUNDLE_WRITE_BACKOFF =

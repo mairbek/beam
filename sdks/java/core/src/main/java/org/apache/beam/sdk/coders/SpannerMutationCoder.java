@@ -43,9 +43,9 @@ public class SpannerMutationCoder extends AtomicCoder<Mutation> {
           throw new UnsupportedOperationException("DELETE Mutations not supported!");
       }
 
-//      ByteArrayDataOutput out = ByteStreams.newDataOutput();
+      ByteArrayDataOutput out = ByteStreams.newDataOutput();
 
-      DataOutputStream out = new DataOutputStream(outStream);
+//      DataOutputStream out = new DataOutputStream(outStream);
 
       out.writeUTF(value.getOperation().name());
       out.writeUTF(value.getTable());
@@ -64,10 +64,10 @@ public class SpannerMutationCoder extends AtomicCoder<Mutation> {
           ser.writeTo(out, v);
       }
 
-//      byte[] buf = out.toByteArray();
-//      outStream.write(java.nio.ByteBuffer.allocate(4).putInt(buf.length).array());
-//      outStream.write(buf);
-//      outStream.flush();
+      byte[] buf = out.toByteArray();
+      outStream.write(java.nio.ByteBuffer.allocate(4).putInt(buf.length).array());
+      outStream.write(buf);
+      outStream.flush();
   }
 
   @Override

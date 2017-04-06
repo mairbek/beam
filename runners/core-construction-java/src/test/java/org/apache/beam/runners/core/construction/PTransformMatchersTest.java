@@ -34,16 +34,8 @@ import org.apache.beam.sdk.io.Write;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.runners.PTransformMatcher;
 import org.apache.beam.sdk.testing.TestPipeline;
-import org.apache.beam.sdk.transforms.AppliedPTransform;
-import org.apache.beam.sdk.transforms.Create;
-import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.Flatten;
-import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.transforms.Sum;
-import org.apache.beam.sdk.transforms.View;
+import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.View.CreatePCollectionView;
-import org.apache.beam.sdk.transforms.ViewFn;
 import org.apache.beam.sdk.transforms.splittabledofn.RestrictionTracker;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindows;
 import org.apache.beam.sdk.transforms.windowing.Window;
@@ -349,6 +341,11 @@ public class PTransformMatchersTest implements Serializable {
         PCollectionViews.iterableView(input, input.getWindowingStrategy(), input.getCoder());
     ViewFn<Iterable<WindowedValue<?>>, Iterable<Integer>> viewFn =
         new ViewFn<Iterable<WindowedValue<?>>, Iterable<Integer>>() {
+          @Override
+          public Materialization<Iterable<WindowedValue<?>>> getMaterialization() {
+            return null;
+          }
+
           @Override
           public Iterable<Integer> apply(Iterable<WindowedValue<?>> contents) {
             return Collections.emptyList();
