@@ -18,8 +18,81 @@
 """Pipeline options obtained from command line parsing."""
 
 import argparse
+import itertools
 
 from apache_beam.transforms.display import HasDisplayData
+from apache_beam.utils.value_provider import StaticValueProvider
+from apache_beam.utils.value_provider import RuntimeValueProvider
+from apache_beam.utils.value_provider import ValueProvider
+
+
+def _static_value_provider_of(value_type):
+  """"Helper function to plug a ValueProvider into argparse.
+
+  Args:
+    value_type: the type of the value. Since the type param of argparse's
+                add_argument will always be ValueProvider, we need to
+                preserve the type of the actual value.
+  Returns:
+    A partially constructed StaticValueProvider in the form of a function.
+
+  """
+  def _f(value):
+    _f.func_name = value_type.__name__
+    return StaticValueProvider(value_type, value)
+  return _f
+
+
+class BeamArgumentParser(argparse.ArgumentParser):
+  """An ArgumentParser that supports ValueProvider options.
+
+  Example Usage::
+
+    class TemplateUserOptions(PipelineOptions):
+      @classmethod
+
+      def _add_argparse_args(cls, parser):
+        parser.add_value_provider_argument('--vp-arg1', default='start')
+        parser.add_value_provider_argument('--vp-arg2')
+        parser.add_argument('--non-vp-arg')
+
+  """
+  def __init__(self, options_id, *args, **kwargs):
+    self._options_id = options_id
+    super(BeamArgumentParser, self).__init__(*args, **kwargs)
+
+  def add_value_provider_argument(self, *args, **kwargs):
+    """ValueProvider arguments can be either of type keyword or positional.
+    At runtime, even positional arguments will need to be supplied in the
+    key/value form.
+    """
+    # Extract the option name from positional argument ['pos_arg']
+    assert args != () and len(args[0]) >= 1
+    if args[0][0] != '-':
+      option_name = args[0]
+      if kwargs.get('nargs') is None:  # make them optionally templated
+        kwargs['nargs'] = '?'
+    else:
+      # or keyword arguments like [--kw_arg, -k, -w] or [--kw-arg]
+      option_name = [i.replace('--', '') for i in args if i[:2] == '--'][0]
+
+    # reassign the type to make room for using
+    # StaticValueProvider as the type for add_argument
+    value_type = kwargs.get('type') or str
+    kwargs['type'] = _static_value_provider_of(value_type)
+
+    # reassign default to default_value to make room for using
+    # RuntimeValueProvider as the default for add_argument
+    default_value = kwargs.get('default')
+    kwargs['default'] = RuntimeValueProvider(
+        option_name=option_name,
+        value_type=value_type,
+        default_value=default_value,
+        options_id=self._options_id
+    )
+
+    # have add_argument do most of the work
+    self.add_argument(*args, **kwargs)
 
 
 class PipelineOptions(HasDisplayData):
@@ -49,8 +122,9 @@ class PipelineOptions(HasDisplayData):
   By default the options classes will use command line arguments to initialize
   the options.
   """
+  _options_id_generator = itertools.count(1)
 
-  def __init__(self, flags=None, **kwargs):
+  def __init__(self, flags=None, options_id=None, **kwargs):
     """Initialize an options class.
 
     The initializer will traverse all subclasses, add all their argparse
@@ -67,7 +141,10 @@ class PipelineOptions(HasDisplayData):
     """
     self._flags = flags
     self._all_options = kwargs
-    parser = argparse.ArgumentParser()
+    self._options_id = (
+        options_id or PipelineOptions._options_id_generator.next())
+    parser = BeamArgumentParser(self._options_id)
+
     for cls in type(self).mro():
       if cls == PipelineOptions:
         break
@@ -119,13 +196,12 @@ class PipelineOptions(HasDisplayData):
 
     # TODO(BEAM-1319): PipelineOption sub-classes in the main session might be
     # repeated. Pick last unique instance of each subclass to avoid conflicts.
-    parser = argparse.ArgumentParser()
     subset = {}
+    parser = BeamArgumentParser(self._options_id)
     for cls in PipelineOptions.__subclasses__():
       subset[str(cls)] = cls
     for cls in subset.values():
       cls._add_argparse_args(parser)  # pylint: disable=protected-access
-
     known_args, _ = parser.parse_known_args(self._flags)
     result = vars(known_args)
 
@@ -133,7 +209,9 @@ class PipelineOptions(HasDisplayData):
     for k in result.keys():
       if k in self._all_options:
         result[k] = self._all_options[k]
-      if drop_default and parser.get_default(k) == result[k]:
+      if (drop_default and
+          parser.get_default(k) == result[k] and
+          not isinstance(parser.get_default(k), ValueProvider)):
         del result[k]
 
     return result
@@ -142,7 +220,7 @@ class PipelineOptions(HasDisplayData):
     return self.get_all_options(True)
 
   def view_as(self, cls):
-    view = cls(self._flags)
+    view = cls(self._flags, options_id=self._options_id)
     view._all_options = self._all_options
     return view
 
@@ -158,7 +236,7 @@ class PipelineOptions(HasDisplayData):
     # Special methods which may be accessed before the object is
     # fully constructed (e.g. in unpickling).
     if name[:2] == name[-2:] == '__':
-      return object.__getattr__(self, name)
+      return object.__getattribute__(self, name)
     elif name in self._visible_option_list():
       return self._all_options.get(name, getattr(self._visible_options, name))
     else:
@@ -166,7 +244,7 @@ class PipelineOptions(HasDisplayData):
                            (type(self).__name__, name))
 
   def __setattr__(self, name, value):
-    if name in ('_flags', '_all_options', '_visible_options'):
+    if name in ('_flags', '_all_options', '_visible_options', '_options_id'):
       super(PipelineOptions, self).__setattr__(name, value)
     elif name in self._visible_option_list():
       self._all_options[name] = value
@@ -277,6 +355,15 @@ class GoogleCloudOptions(PipelineOptions):
     parser.add_argument('--temp_location',
                         default=None,
                         help='GCS path for saving temporary workflow jobs.')
+    # The Cloud Dataflow service does not yet honor this setting. However, once
+    # service support is added then users of this SDK will be able to control
+    # the region. Default is up to the Dataflow service. See
+    # https://cloud.google.com/compute/docs/regions-zones/regions-zones for a
+    # list of valid options/
+    parser.add_argument('--region',
+                        default='us-central1',
+                        help='The Google Compute Engine region for creating '
+                        'Dataflow job.')
     parser.add_argument('--service_account_name',
                         default=None,
                         help='Name of the service account for Google APIs.')
@@ -336,7 +423,7 @@ class WorkerOptions(PipelineOptions):
         choices=['NONE', 'THROUGHPUT_BASED'],
         default=None,  # Meaning unset, distinct from 'NONE' meaning don't scale
         help=
-        ('If and how to auotscale the workerpool.'))
+        ('If and how to autoscale the workerpool.'))
     parser.add_argument(
         '--worker_machine_type',
         dest='machine_type',

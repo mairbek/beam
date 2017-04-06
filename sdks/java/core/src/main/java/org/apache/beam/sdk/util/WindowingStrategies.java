@@ -120,8 +120,7 @@ public class WindowingStrategies implements Serializable {
 
   public static RunnerApi.OutputTime toProto(OutputTimeFn<?> outputTimeFn) {
     if (outputTimeFn instanceof WindowingStrategy.CombineWindowFnOutputTimes) {
-      return OutputTimeFns.toProto(
-          ((CombineWindowFnOutputTimes<?>) outputTimeFn).getOutputTimeFn());
+      return toProto(((CombineWindowFnOutputTimes<?>) outputTimeFn).getOutputTimeFn());
     } else {
       return OutputTimeFns.toProto(outputTimeFn);
     }
@@ -129,11 +128,11 @@ public class WindowingStrategies implements Serializable {
 
   // This URN says that the coder is just a UDF blob the indicated SDK understands
   // TODO: standardize such things
-  private static final String CUSTOM_CODER_URN = "urn:beam:coders:javasdk:0.1";
+  public static final String CUSTOM_CODER_URN = "urn:beam:coders:javasdk:0.1";
 
   // This URN says that the WindowFn is just a UDF blob the indicated SDK understands
   // TODO: standardize such things
-  private static final String CUSTOM_WINDOWFN_URN = "urn:beam:windowfn:javasdk:0.1";
+  public static final String CUSTOM_WINDOWFN_URN = "urn:beam:windowfn:javasdk:0.1";
 
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -243,6 +242,7 @@ public class WindowingStrategies implements Serializable {
         windowFnSpec.getSpec().getUrn().equals(CUSTOM_WINDOWFN_URN),
         "Only Java-serialized %s instances are supported, with URN %s. But found URN %s",
         WindowFn.class.getSimpleName(),
+        CUSTOM_WINDOWFN_URN,
         windowFnSpec.getSpec().getUrn());
 
     Object deserializedWindowFn =

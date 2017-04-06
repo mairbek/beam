@@ -45,6 +45,8 @@ from apache_beam.utils.pipeline_options import TypeOptions
 
 
 class PTransformTest(unittest.TestCase):
+  # Enable nose tests running in parallel
+  _multiprocess_can_split_ = True
 
   def assertStartswith(self, msg, prefix):
     self.assertTrue(msg.startswith(prefix),
@@ -431,6 +433,12 @@ class PTransformTest(unittest.TestCase):
       () | 'PipelineArgMissing' >> beam.Flatten()
     result = () | 'Empty' >> beam.Flatten(pipeline=pipeline)
     assert_that(result, equal_to([]))
+    pipeline.run()
+
+  def test_flatten_same_pcollections(self):
+    pipeline = TestPipeline()
+    pc = pipeline | beam.Create(['a', 'b'])
+    assert_that((pc, pc, pc) | beam.Flatten(), equal_to(['a', 'b'] * 3))
     pipeline.run()
 
   def test_flatten_pcollections_in_iterable(self):

@@ -24,12 +24,12 @@ import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
-
 import org.apache.activemq.broker.BrokerService;
 import org.apache.activemq.broker.Connection;
+import org.apache.beam.sdk.io.mqtt.MqttIO.Read;
 import org.apache.beam.sdk.testing.PAssert;
-import org.apache.beam.sdk.testing.RunnableOnService;
 import org.apache.beam.sdk.testing.TestPipeline;
+import org.apache.beam.sdk.testing.ValidatesRunner;
 import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.values.PCollection;
 import org.fusesource.hawtbuf.Buffer;
@@ -78,7 +78,67 @@ public class MqttIOTest {
   }
 
   @Test(timeout = 60 * 1000)
-  @Category(RunnableOnService.class)
+  @Category(ValidatesRunner.class)
+  public void testReadNoClientId() throws Exception {
+    final String topicName = "READ_TOPIC_NO_CLIENT_ID";
+    Read mqttReader = MqttIO.read()
+    .withConnectionConfiguration(
+        MqttIO.ConnectionConfiguration.create(
+            "tcp://localhost:" + port,
+            topicName))
+  .withMaxNumRecords(10);
+    PCollection<byte[]> output = pipeline.apply(mqttReader);
+    PAssert.that(output).containsInAnyOrder(
+        "This is test 0".getBytes(),
+        "This is test 1".getBytes(),
+        "This is test 2".getBytes(),
+        "This is test 3".getBytes(),
+        "This is test 4".getBytes(),
+        "This is test 5".getBytes(),
+        "This is test 6".getBytes(),
+        "This is test 7".getBytes(),
+        "This is test 8".getBytes(),
+        "This is test 9".getBytes()
+    );
+
+    // produce messages on the brokerService in another thread
+    // This thread prevents to block the pipeline waiting for new messages
+    MQTT client = new MQTT();
+    client.setHost("tcp://localhost:" + port);
+    final BlockingConnection publishConnection = client.blockingConnection();
+    publishConnection.connect();
+    Thread publisherThread = new Thread() {
+      public void run() {
+        try {
+          LOG.info("Waiting pipeline connected to the MQTT broker before sending "
+              + "messages ...");
+          boolean pipelineConnected = false;
+          while (!pipelineConnected) {
+            Thread.sleep(1000);
+            for (Connection connection : brokerService.getBroker().getClients()) {
+              if (!connection.getConnectionId().isEmpty()) {
+                pipelineConnected = true;
+              }
+            }
+          }
+          for (int i = 0; i < 10; i++) {
+            publishConnection.publish(topicName, ("This is test " + i).getBytes(),
+                QoS.AT_LEAST_ONCE, false);
+          }
+        } catch (Exception e) {
+          // nothing to do
+        }
+      }
+    };
+    publisherThread.start();
+    pipeline.run();
+
+    publishConnection.disconnect();
+    publisherThread.join();
+  }
+
+  @Test(timeout = 60 * 1000)
+  @Category(ValidatesRunner.class)
   public void testRead() throws Exception {
     PCollection<byte[]> output = pipeline.apply(
         MqttIO.read()
@@ -138,7 +198,7 @@ public class MqttIOTest {
   }
 
   @Test
-  @Category(RunnableOnService.class)
+  @Category(ValidatesRunner.class)
   public void testWrite() throws Exception {
     MQTT client = new MQTT();
     client.setHost("tcp://localhost:" + port);

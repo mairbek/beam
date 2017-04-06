@@ -31,20 +31,20 @@ import re
 import threading
 import traceback
 
-import apitools.base.py.transfer as transfer
-from apitools.base.py.batch import BatchApiRequest
-from apitools.base.py.exceptions import HttpError
-
-from apache_beam.internal.gcp import auth
 from apache_beam.utils import retry
 
 # Issue a friendlier error message if the storage library is not available.
 # TODO(silviuc): Remove this guard when storage is available everywhere.
 try:
   # pylint: disable=wrong-import-order, wrong-import-position
+  # pylint: disable=ungrouped-imports
+  import apitools.base.py.transfer as transfer
+  from apitools.base.py.batch import BatchApiRequest
+  from apitools.base.py.exceptions import HttpError
+  from apache_beam.internal.gcp import auth
   from apache_beam.io.gcp.internal.clients import storage
 except ImportError:
-  raise RuntimeError(
+  raise ImportError(
       'Google Cloud Storage I/O not supported for this execution environment '
       '(could not import storage API client).')
 
@@ -155,6 +155,8 @@ class GcsIO(object):
 
     Args:
       pattern: GCS file path pattern in the form gs://<bucket>/<name_pattern>.
+      limit: Maximal number of path names to return.
+        All matching paths are returned if set to None.
 
     Returns:
       list of GCS file paths matching the given pattern.
@@ -370,7 +372,7 @@ class GcsIO(object):
     """Returns the size of all the files in the glob as a dictionary
 
     Args:
-      path: a file path pattern that reads the size of all the files
+      pattern: a file path pattern that reads the size of all the files
     """
     bucket, name_pattern = parse_gcs_path(pattern)
     # Get the prefix with which we can list objects in the given bucket.
@@ -752,7 +754,6 @@ class GcsBufferedWriter(object):
     self.path = path
     self.mode = mode
     self.bucket, self.name = parse_gcs_path(path)
-    self.mode = mode
 
     self.closed = False
     self.position = 0

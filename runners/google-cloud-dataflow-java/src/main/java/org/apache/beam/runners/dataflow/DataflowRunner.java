@@ -37,6 +37,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.base.Utf8;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
@@ -58,15 +59,17 @@ import java.util.Random;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.apache.beam.runners.core.construction.DeduplicatedFlattenFactory;
 import org.apache.beam.runners.core.construction.EmptyFlattenAsCreateFactory;
 import org.apache.beam.runners.core.construction.PTransformMatchers;
 import org.apache.beam.runners.core.construction.ReplacementOutputs;
 import org.apache.beam.runners.core.construction.SingleInputOutputOverrideFactory;
 import org.apache.beam.runners.core.construction.UnsupportedOverrideFactory;
+import org.apache.beam.runners.dataflow.BatchViewOverrides.BatchCombineGloballyAsSingletonViewFactory;
 import org.apache.beam.runners.dataflow.DataflowPipelineTranslator.JobSpecification;
+import org.apache.beam.runners.dataflow.StreamingViewOverrides.StreamingCreatePCollectionViewFactory;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineDebugOptions;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
-import org.apache.beam.runners.dataflow.options.DataflowPipelineWorkerPoolOptions;
 import org.apache.beam.runners.dataflow.util.DataflowTemplateJob;
 import org.apache.beam.runners.dataflow.util.DataflowTransport;
 import org.apache.beam.runners.dataflow.util.MonitoringUtil;
@@ -75,6 +78,8 @@ import org.apache.beam.sdk.Pipeline.PipelineVisitor;
 import org.apache.beam.sdk.PipelineResult.State;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.coders.Coder;
+import org.apache.beam.sdk.coders.Coder.NonDeterministicException;
+import org.apache.beam.sdk.coders.KvCoder;
 import org.apache.beam.sdk.coders.VoidCoder;
 import org.apache.beam.sdk.io.BoundedSource;
 import org.apache.beam.sdk.io.FileBasedSink;
@@ -88,24 +93,19 @@ import org.apache.beam.sdk.io.Write;
 import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsValidator;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
-import org.apache.beam.sdk.runners.PTransformMatcher;
+import org.apache.beam.sdk.runners.PTransformOverride;
 import org.apache.beam.sdk.runners.PTransformOverrideFactory;
 import org.apache.beam.sdk.runners.PipelineRunner;
 import org.apache.beam.sdk.runners.TransformHierarchy;
+import org.apache.beam.sdk.runners.TransformHierarchy.Node;
 import org.apache.beam.sdk.transforms.Aggregator;
 import org.apache.beam.sdk.transforms.Combine;
-import org.apache.beam.sdk.transforms.Combine.GloballyAsSingletonView;
 import org.apache.beam.sdk.transforms.Combine.GroupedValues;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.View;
-import org.apache.beam.sdk.transforms.View.AsIterable;
-import org.apache.beam.sdk.transforms.View.AsList;
-import org.apache.beam.sdk.transforms.View.AsMap;
-import org.apache.beam.sdk.transforms.View.AsMultimap;
-import org.apache.beam.sdk.transforms.View.AsSingleton;
 import org.apache.beam.sdk.transforms.WithKeys;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
@@ -161,9 +161,6 @@ public class DataflowRunner extends PipelineRunner<DataflowPipelineJob> {
 
   /** Translator for this DataflowRunner, based on options. */
   private final DataflowPipelineTranslator translator;
-
-  /** Custom transforms implementations. */
-  private final ImmutableMap<PTransformMatcher, PTransformOverrideFactory> overrides;
 
   /** A set of user defined functions to invoke at different points in execution. */
   private DataflowRunnerHooks hooks;
@@ -291,104 +288,125 @@ public class DataflowRunner extends PipelineRunner<DataflowPipelineJob> {
     this.translator = DataflowPipelineTranslator.fromOptions(options);
     this.pcollectionsRequiringIndexedFormat = new HashSet<>();
     this.ptransformViewsWithNonDeterministicKeyCoders = new HashSet<>();
+  }
 
-    ImmutableMap.Builder<PTransformMatcher, PTransformOverrideFactory> ptoverrides =
-        ImmutableMap.builder();
+  private List<PTransformOverride> getOverrides(boolean streaming) {
+    ImmutableList.Builder<PTransformOverride> overridesBuilder = ImmutableList.builder();
     // Create is implemented in terms of a Read, so it must precede the override to Read in
     // streaming
-    ptoverrides.put(PTransformMatchers.emptyFlatten(), EmptyFlattenAsCreateFactory.instance());
-    if (options.isStreaming()) {
+    overridesBuilder
+        .add(
+            PTransformOverride.of(
+                PTransformMatchers.flattenWithDuplicateInputs(),
+                DeduplicatedFlattenFactory.create()))
+        .add(
+            PTransformOverride.of(
+                PTransformMatchers.emptyFlatten(), EmptyFlattenAsCreateFactory.instance()));
+    if (streaming) {
       // In streaming mode must use either the custom Pubsub unbounded source/sink or
       // defer to Windmill's built-in implementation.
       for (Class<? extends DoFn> unsupported :
           ImmutableSet.of(PubsubBoundedReader.class, PubsubBoundedWriter.class)) {
-        ptoverrides.put(
-            PTransformMatchers.parDoWithFnType(unsupported),
-            UnsupportedOverrideFactory.withMessage(getUnsupportedMessage(unsupported, true)));
+        overridesBuilder.add(
+            PTransformOverride.of(
+                PTransformMatchers.parDoWithFnType(unsupported),
+                UnsupportedOverrideFactory.withMessage(getUnsupportedMessage(unsupported, true))));
       }
       if (!hasExperiment(options, "enable_custom_pubsub_source")) {
-        ptoverrides.put(
-            PTransformMatchers.classEqualTo(PubsubUnboundedSource.class),
-            new ReflectiveRootOverrideFactory(StreamingPubsubIORead.class, this));
+        overridesBuilder.add(
+            PTransformOverride.of(
+                PTransformMatchers.classEqualTo(PubsubUnboundedSource.class),
+                new ReflectiveRootOverrideFactory(StreamingPubsubIORead.class, this)));
       }
       if (!hasExperiment(options, "enable_custom_pubsub_sink")) {
-        ptoverrides.put(
-            PTransformMatchers.classEqualTo(PubsubUnboundedSink.class),
-            new StreamingPubsubIOWriteOverrideFactory(this));
+        overridesBuilder.add(
+            PTransformOverride.of(
+                PTransformMatchers.classEqualTo(PubsubUnboundedSink.class),
+                new StreamingPubsubIOWriteOverrideFactory(this)));
       }
-      ptoverrides
-          .put(
+      overridesBuilder
+          .add(
               // Streaming Bounded Read is implemented in terms of Streaming Unbounded Read, and
               // must precede it
-              PTransformMatchers.classEqualTo(Read.Bounded.class),
-              new ReflectiveRootOverrideFactory(StreamingBoundedRead.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(Read.Unbounded.class),
-              new ReflectiveRootOverrideFactory(StreamingUnboundedRead.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(GloballyAsSingletonView.class),
-              new ReflectiveOneToOneOverrideFactory(
-                  StreamingViewOverrides.StreamingCombineGloballyAsSingletonView.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(AsMap.class),
-              new ReflectiveOneToOneOverrideFactory(
-                  StreamingViewOverrides.StreamingViewAsMap.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(AsMultimap.class),
-              new ReflectiveOneToOneOverrideFactory(
-                  StreamingViewOverrides.StreamingViewAsMultimap.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(AsSingleton.class),
-              new ReflectiveOneToOneOverrideFactory(
-                  StreamingViewOverrides.StreamingViewAsSingleton.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(AsList.class),
-              new ReflectiveOneToOneOverrideFactory(
-                  StreamingViewOverrides.StreamingViewAsList.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(AsIterable.class),
-              new ReflectiveOneToOneOverrideFactory(
-                  StreamingViewOverrides.StreamingViewAsIterable.class, this));
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(Read.Bounded.class),
+                  new ReflectiveRootOverrideFactory(StreamingBoundedRead.class, this)))
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(Read.Unbounded.class),
+                  new ReflectiveRootOverrideFactory(StreamingUnboundedRead.class, this)))
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(View.CreatePCollectionView.class),
+                  new StreamingCreatePCollectionViewFactory()));
     } else {
       // In batch mode must use the custom Pubsub bounded source/sink.
       for (Class<? extends PTransform> unsupported :
           ImmutableSet.of(PubsubUnboundedSink.class, PubsubUnboundedSource.class)) {
-        ptoverrides.put(
-            PTransformMatchers.classEqualTo(unsupported),
-            UnsupportedOverrideFactory.withMessage(getUnsupportedMessage(unsupported, false)));
+        overridesBuilder.add(
+            PTransformOverride.of(
+                PTransformMatchers.classEqualTo(unsupported),
+                UnsupportedOverrideFactory.withMessage(getUnsupportedMessage(unsupported, false))));
       }
-      ptoverrides.put(
-          PTransformMatchers.classEqualTo(Read.Unbounded.class),
-          UnsupportedOverrideFactory.withMessage(
-              "The DataflowRunner in batch mode does not support Read.Unbounded"));
-      ptoverrides
+      overridesBuilder
+          // State and timer pardos are implemented by expansion to GBK-then-ParDo
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.stateOrTimerParDoMulti(),
+                  BatchStatefulParDoOverrides.multiOutputOverrideFactory()))
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.stateOrTimerParDoSingle(),
+                  BatchStatefulParDoOverrides.singleOutputOverrideFactory()))
+
           // Write uses views internally
-          .put(PTransformMatchers.classEqualTo(Write.class), new BatchWriteFactory(this))
-          .put(
-              PTransformMatchers.classEqualTo(View.AsMap.class),
-              new ReflectiveOneToOneOverrideFactory(BatchViewOverrides.BatchViewAsMap.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(View.AsMultimap.class),
-              new ReflectiveOneToOneOverrideFactory(
-                  BatchViewOverrides.BatchViewAsMultimap.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(View.AsSingleton.class),
-              new ReflectiveOneToOneOverrideFactory(
-                  BatchViewOverrides.BatchViewAsSingleton.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(View.AsList.class),
-              new ReflectiveOneToOneOverrideFactory(BatchViewOverrides.BatchViewAsList.class, this))
-          .put(
-              PTransformMatchers.classEqualTo(View.AsIterable.class),
-              new ReflectiveOneToOneOverrideFactory(
-                  BatchViewOverrides.BatchViewAsIterable.class, this));
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(Write.class), new BatchWriteFactory(this)))
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(Combine.GloballyAsSingletonView.class),
+                  new BatchCombineGloballyAsSingletonViewFactory(this)))
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(View.AsMap.class),
+                  new ReflectiveOneToOneOverrideFactory(
+                      BatchViewOverrides.BatchViewAsMap.class, this)))
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(View.AsMultimap.class),
+                  new ReflectiveOneToOneOverrideFactory(
+                      BatchViewOverrides.BatchViewAsMultimap.class, this)))
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(View.AsSingleton.class),
+                  new ReflectiveOneToOneOverrideFactory(
+                      BatchViewOverrides.BatchViewAsSingleton.class, this)))
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(View.AsList.class),
+                  new ReflectiveOneToOneOverrideFactory(
+                      BatchViewOverrides.BatchViewAsList.class, this)))
+          .add(
+              PTransformOverride.of(
+                  PTransformMatchers.classEqualTo(View.AsIterable.class),
+                  new ReflectiveOneToOneOverrideFactory(
+                      BatchViewOverrides.BatchViewAsIterable.class, this)));
     }
-    ptoverrides
+    overridesBuilder
+        .add(
+            PTransformOverride.of(
+                PTransformMatchers.classEqualTo(Reshuffle.class), new ReshuffleOverrideFactory()))
         // Order is important. Streaming views almost all use Combine internally.
-        .put(
-            PTransformMatchers.classEqualTo(Combine.GroupedValues.class),
-            new PrimitiveCombineGroupedValuesOverrideFactory());
-    overrides = ptoverrides.build();
+        .add(
+            PTransformOverride.of(
+                PTransformMatchers.classEqualTo(Combine.GroupedValues.class),
+                new PrimitiveCombineGroupedValuesOverrideFactory()))
+        .add(
+            PTransformOverride.of(
+                PTransformMatchers.classEqualTo(ParDo.SingleOutput.class),
+                new PrimitiveParDoSingleFactory()));
+    return overridesBuilder.build();
   }
 
   private String getUnsupportedMessage(Class<?> unsupported, boolean streaming) {
@@ -501,6 +519,9 @@ public class DataflowRunner extends PipelineRunner<DataflowPipelineJob> {
   @Override
   public DataflowPipelineJob run(Pipeline pipeline) {
     logWarningIfPCollectionViewHasNonDeterministicKeyCoder(pipeline);
+    if (containsUnboundedPCollection(pipeline)) {
+      options.setStreaming(true);
+    }
     replaceTransforms(pipeline);
 
     LOG.info("Executing pipeline on the Dataflow Service, which will have billing implications "
@@ -549,9 +570,7 @@ public class DataflowRunner extends PipelineRunner<DataflowPipelineJob> {
 
     // Set the Docker container image that executes Dataflow worker harness, residing in Google
     // Container Registry. Translator is guaranteed to create a worker pool prior to this point.
-    String workerHarnessContainerImage =
-        options.as(DataflowPipelineWorkerPoolOptions.class)
-        .getWorkerHarnessContainerImage();
+    String workerHarnessContainerImage = getContainerImageForJob(options);
     for (WorkerPool workerPool : newJob.getEnvironment().getWorkerPools()) {
       workerPool.setWorkerHarnessContainerImage(workerHarnessContainerImage);
     }
@@ -690,10 +709,25 @@ public class DataflowRunner extends PipelineRunner<DataflowPipelineJob> {
 
   @VisibleForTesting
   void replaceTransforms(Pipeline pipeline) {
-    for (Map.Entry<PTransformMatcher, PTransformOverrideFactory> override : overrides.entrySet()) {
-      pipeline.replace(override.getKey(), override.getValue());
-    }
+    boolean streaming = options.isStreaming() || containsUnboundedPCollection(pipeline);
+    pipeline.replaceAll(getOverrides(streaming));
   }
+
+  private boolean containsUnboundedPCollection(Pipeline p) {
+    class BoundednessVisitor extends PipelineVisitor.Defaults {
+      IsBounded boundedness = IsBounded.BOUNDED;
+
+      @Override
+      public void visitValue(PValue value, Node producer) {
+        if (value instanceof PCollection) {
+          boundedness = boundedness.and(((PCollection) value).isBounded());
+        }
+      }
+    }
+    BoundednessVisitor visitor = new BoundednessVisitor();
+    p.traverseTopologically(visitor);
+    return visitor.boundedness == IsBounded.UNBOUNDED;
+  };
 
   /**
    * Returns the DataflowPipelineTranslator associated with this object.
@@ -719,30 +753,40 @@ public class DataflowRunner extends PipelineRunner<DataflowPipelineJob> {
     // have just recorded the full names during apply time.
     if (!ptransformViewsWithNonDeterministicKeyCoders.isEmpty()) {
       final SortedSet<String> ptransformViewNamesWithNonDeterministicKeyCoders = new TreeSet<>();
-      pipeline.traverseTopologically(new PipelineVisitor() {
-        @Override
-        public void visitValue(PValue value, TransformHierarchy.Node producer) {
-        }
+      pipeline.traverseTopologically(
+          new PipelineVisitor() {
+            @Override
+            public void visitValue(PValue value, TransformHierarchy.Node producer) {}
 
-        @Override
-        public void visitPrimitiveTransform(TransformHierarchy.Node node) {
-          if (ptransformViewsWithNonDeterministicKeyCoders.contains(node.getTransform())) {
-            ptransformViewNamesWithNonDeterministicKeyCoders.add(node.getFullName());
-          }
-        }
+            @Override
+            public void visitPrimitiveTransform(TransformHierarchy.Node node) {
+              if (ptransformViewsWithNonDeterministicKeyCoders.contains(node.getTransform())) {
+                ptransformViewNamesWithNonDeterministicKeyCoders.add(node.getFullName());
+              }
+            }
 
-        @Override
-        public CompositeBehavior enterCompositeTransform(TransformHierarchy.Node node) {
-          if (ptransformViewsWithNonDeterministicKeyCoders.contains(node.getTransform())) {
-            ptransformViewNamesWithNonDeterministicKeyCoders.add(node.getFullName());
-          }
-          return CompositeBehavior.ENTER_TRANSFORM;
-        }
+            @Override
+            public CompositeBehavior enterCompositeTransform(TransformHierarchy.Node node) {
+              if (node.getTransform() instanceof View.AsMap
+                  || node.getTransform() instanceof View.AsMultimap) {
+                PCollection<KV<?, ?>> input =
+                    (PCollection<KV<?, ?>>) Iterables.getOnlyElement(node.getInputs()).getValue();
+                KvCoder<?, ?> inputCoder = (KvCoder) input.getCoder();
+                try {
+                  inputCoder.getKeyCoder().verifyDeterministic();
+                } catch (NonDeterministicException e) {
+                  ptransformViewNamesWithNonDeterministicKeyCoders.add(node.getFullName());
+                }
+              }
+              if (ptransformViewsWithNonDeterministicKeyCoders.contains(node.getTransform())) {
+                ptransformViewNamesWithNonDeterministicKeyCoders.add(node.getFullName());
+              }
+              return CompositeBehavior.ENTER_TRANSFORM;
+            }
 
-        @Override
-        public void leaveCompositeTransform(TransformHierarchy.Node node) {
-        }
-      });
+            @Override
+            public void leaveCompositeTransform(TransformHierarchy.Node node) {}
+          });
 
       LOG.warn("Unable to use indexed implementation for View.AsMap and View.AsMultimap for {} "
           + "because the key coder is not deterministic. Falling back to singleton implementation "
@@ -1319,4 +1363,17 @@ public class DataflowRunner extends PipelineRunner<DataflowPipelineJob> {
     }
   }
 
+  @VisibleForTesting
+  static String getContainerImageForJob(DataflowPipelineOptions options) {
+    String workerHarnessContainerImage = options.getWorkerHarnessContainerImage();
+    if (!workerHarnessContainerImage.contains("IMAGE")) {
+      return workerHarnessContainerImage;
+    } else if (hasExperiment(options, "beam_fn_api")) {
+      return workerHarnessContainerImage.replace("IMAGE", "java");
+    } else if (options.isStreaming()) {
+      return workerHarnessContainerImage.replace("IMAGE", "beam-java-streaming");
+    } else {
+      return workerHarnessContainerImage.replace("IMAGE", "beam-java-batch");
+    }
+  }
 }
