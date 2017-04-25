@@ -17,7 +17,7 @@ import java.util.Collections;
  */
 public class SpannerCSVLoader {
   /** Command options specification. */
-  private static interface Options extends PipelineOptions {
+  private interface Options extends PipelineOptions {
     @Description("Create a sample database")
     @Default.Boolean(false)
     boolean isCreateDatabase();
@@ -89,7 +89,7 @@ public class SpannerCSVLoader {
   }
 
   /** A DoFn that creates a Spanner Mutation for each CSV line. */
-  static class NaiveParseCsvFn extends DoFn<String, Mutation> {
+  private static class NaiveParseCsvFn extends DoFn<String, Mutation> {
     private final String table;
 
     NaiveParseCsvFn(String table) {
