@@ -62,15 +62,14 @@ public class SpannerIO {
   private SpannerIO() {
   }
 
-  @VisibleForTesting
-  static final int SPANNER_MUTATIONS_PER_COMMIT_LIMIT = 20000;
+  private static final long MAX_BATCH_SIZE = 1024 * 1024 * 8;  // 1 MB
 
     /**
      * Creates an instance of {@link Writer}. Use {@link Writer#withBatchSize} to limit the batch
      * size.
      */
   public static Writer writeTo(String instanceId, String databaseId) {
-    return new Writer(instanceId, databaseId, SPANNER_MUTATIONS_PER_COMMIT_LIMIT);
+    return new Writer(instanceId, databaseId, MAX_BATCH_SIZE);
   }
 
   /**
@@ -82,9 +81,9 @@ public class SpannerIO {
 
     private final String instanceId;
     private final String databaseId;
-    private int batchSize;
+    private long batchSize;
 
-    Writer(String instanceId, String databaseId, int batchSize) {
+    Writer(String instanceId, String databaseId, long batchSize) {
       this.instanceId = instanceId;
       this.databaseId = databaseId;
       this.batchSize = batchSize;
@@ -92,17 +91,19 @@ public class SpannerIO {
 
     /**
      * Returns a new {@link Writer} with a limit on the number of mutations per batch.
-     * Defaults to {@link SpannerIO#SPANNER_MUTATIONS_PER_COMMIT_LIMIT}.
+     * Defaults to recommended 1MB.
+     *
+     * @param batchSize a max size of the batch in bits.
      */
-    public Writer withBatchSize(Integer batchSize) {
+    public Writer withBatchSize(long batchSize) {
       return new Writer(instanceId, databaseId, batchSize);
     }
 
     @Override
     public PDone expand(PCollection<Mutation> input) {
-      input.apply("Write mutations to Spanner", ParDo.of(
-              new SpannerWriterFn(instanceId, databaseId, batchSize)));
-
+      input.apply("Convert to group", ParDo.of(new SpannerGroupFn()))
+              .apply("Write mutations to Spanner", ParDo.of(
+                      new SpannerWriterFn(instanceId, databaseId, batchSize)));
       return PDone.in(input.getPipeline());
     }
 
@@ -130,29 +131,49 @@ public class SpannerIO {
               .withLabel("Output Database"));
     }
 
+    PTransform<PCollection<MutationGroup>, PDone> grouped() {
+      return new PTransform<PCollection<MutationGroup>, PDone>() {
+        @Override
+        public PDone expand(PCollection<MutationGroup> input) {
+          input.apply("Write mutations to Spanner", ParDo.of(
+                  new SpannerWriterFn(instanceId, databaseId, batchSize)));
+          return PDone.in(input.getPipeline());
+        }
+      };
+    }
+  }
+
+  private static class SpannerGroupFn extends DoFn<Mutation, MutationGroup> {
+    @ProcessElement
+    public void processElement(ProcessContext c) throws Exception {
+      Mutation m = c.element();
+      c.output(MutationGroup.withPrimary(m).build());
+    }
   }
 
 
-  /**
+    /**
    * {@link DoFn} that writes {@link Mutation}s to Cloud Spanner. Mutations are written in
-   * batches, where the maximum batch size is {@link SpannerIO#SPANNER_MUTATIONS_PER_COMMIT_LIMIT}.
+   * batches.
    *
    * <p>See <a href="https://cloud.google.com/spanner"/>
    *
    * <p>Commits are non-transactional.  If a commit fails, it will be retried (up to
-   * {@link SpannerIO#SPANNER_MUTATIONS_PER_COMMIT_LIMIT}. times). This means that the
+   * {@link #MAX_RETRIES}. times). This means that the
    * mutation operation should be idempotent.
    */
   @VisibleForTesting
-  static class SpannerWriterFn extends DoFn<Mutation, Void> {
+  static class SpannerWriterFn extends DoFn<MutationGroup, Void> {
     private static final Logger LOG = LoggerFactory.getLogger(SpannerWriterFn.class);
     private transient Spanner spanner;
     private final String instanceId;
     private final String databaseId;
-    private final int batchSize;
+    private final long maxBatchSize;
     private transient DatabaseClient dbClient;
     // Current batch of mutations to be written.
     private final List<Mutation> mutations = new ArrayList<>();
+    // The size of current batch.
+    private long batchSize = 0;
 
     private static final int MAX_RETRIES = 5;
     private static final FluentBackoff BUNDLE_WRITE_BACKOFF =
@@ -160,10 +181,10 @@ public class SpannerIO {
             .withMaxRetries(MAX_RETRIES).withInitialBackoff(Duration.standardSeconds(5));
 
     @VisibleForTesting
-    SpannerWriterFn(String instanceId, String databaseId, int batchSize) {
+    SpannerWriterFn(String instanceId, String databaseId, long maxBatchSize) {
       this.instanceId = checkNotNull(instanceId, "instanceId");
       this.databaseId = checkNotNull(databaseId, "databaseId");
-      this.batchSize = batchSize;
+      this.maxBatchSize = maxBatchSize;
     }
 
     @Setup
@@ -176,10 +197,10 @@ public class SpannerIO {
 
     @ProcessElement
     public void processElement(ProcessContext c) throws Exception {
-      Mutation m = c.element();
-      mutations.add(m);
-      int columnCount = m.asMap().size();
-      if ((mutations.size() + 1) * columnCount >= batchSize) {
+      MutationGroup m = c.element();
+      mutations.addAll(m.allMutations());
+      batchSize += MutationSizeEstimator.sizeOf(m);
+      if (batchSize >= maxBatchSize) {
         flushBatch();
       }
     }
@@ -210,7 +231,7 @@ public class SpannerIO {
      * backing off between retries fails.
      */
     private void flushBatch() throws AbortedException, IOException, InterruptedException {
-      LOG.debug("Writing batch of {} mutations", mutations.size());
+      LOG.debug("Writing batch of {} mutations. Total size {} bits", mutations.size(), batchSize);
       Sleeper sleeper = Sleeper.DEFAULT;
       BackOff backoff = BUNDLE_WRITE_BACKOFF.backoff();
 
@@ -234,6 +255,7 @@ public class SpannerIO {
       }
       LOG.debug("Successfully wrote {} mutations", mutations.size());
       mutations.clear();
+      batchSize = 0;
     }
 
     @Override
