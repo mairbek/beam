@@ -5,7 +5,8 @@ import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Value;
 
 /**
- * Estimates the size of {@link com.google.cloud.spanner.Mutation}.
+ * Estimates the size of {@link com.google.cloud.spanner.Mutation}. Only checks value size,
+ * and doesn't take gRPC serialization overhead into account.
  */
 public class MutationSizeEstimator {
 
