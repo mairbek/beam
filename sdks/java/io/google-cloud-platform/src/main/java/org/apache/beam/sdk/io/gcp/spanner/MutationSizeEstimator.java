@@ -31,7 +31,7 @@ public class MutationSizeEstimator {
     }
     public static long sizeOf(MutationGroup group) {
         long result = 0;
-        for (Mutation m : group.allMutations()) {
+        for (Mutation m : group) {
             result += sizeOf(m);
         }
         return result;

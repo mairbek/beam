@@ -4,6 +4,7 @@ import com.google.cloud.spanner.*;
 import com.google.spanner.admin.database.v1.CreateDatabaseMetadata;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.TextIO;
+import org.apache.beam.sdk.io.gcp.spanner.KeyComparator;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerIO;
 import org.apache.beam.sdk.options.*;
 import org.apache.beam.sdk.transforms.DoFn;
@@ -59,7 +60,8 @@ public class SpannerCSVLoader {
     PCollection<String> lines = p.apply(TextIO.Read.from(options.getInput()));
     PCollection<Mutation> mutations =
         lines.apply(ParDo.of(new NaiveParseCsvFn(options.getTable())));
-    mutations.apply(SpannerIO.writeTo(options.getInstanceId(), options.getDatabaseId()));
+    mutations.apply(SpannerIO.writeTo(options.getInstanceId(), options.getDatabaseId())
+            .sampleParitions(KeyComparator.builder().asc("Key").build(), 1000));
     p.run().waitUntilFinish();
   }
 
