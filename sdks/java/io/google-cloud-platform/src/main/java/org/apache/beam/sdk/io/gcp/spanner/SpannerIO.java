@@ -49,7 +49,7 @@ import java.util.List;
 public class SpannerIO {
 
     private static final long DEFAULT_BATCH_SIZE = 1024 * 1024 * 8;  // 1 MB
-    private static final int DEFAULT_NUM_PARTITIONS = 10000;
+    private static final int DEFAULT_NUM_PARTITIONS = 1000;
 
     private SpannerIO() {
     }
