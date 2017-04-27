@@ -5,17 +5,23 @@ import com.google.common.collect.ImmutableList;
 
 import java.io.Serializable;
 import java.util.Arrays;
+import java.util.Iterator;
 
 /**
  * A bundle of mutations that must be submitted atomically.
  *
  * One of the mutations is chosen to be "primary", and is used in determining partitions.
  */
-public final class MutationGroup implements Serializable {
+public final class MutationGroup implements Serializable, Iterable<Mutation> {
     private final ImmutableList<Mutation> mutations;
 
     public static Builder withPrimary(Mutation primary) {
         return new Builder(primary);
+    }
+
+    @Override
+    public Iterator<Mutation> iterator() {
+        return mutations.iterator();
     }
 
     public static class Builder {
@@ -55,9 +61,5 @@ public final class MutationGroup implements Serializable {
 
     public ImmutableList<Mutation> attached() {
         return mutations.subList(1, mutations.size());
-    }
-
-    public ImmutableList<Mutation> allMutations() {
-        return mutations;
     }
 }
