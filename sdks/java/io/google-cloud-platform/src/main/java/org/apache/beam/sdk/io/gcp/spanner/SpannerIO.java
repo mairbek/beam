@@ -2,7 +2,6 @@ package org.apache.beam.sdk.io.gcp.spanner;
 
 import com.google.cloud.spanner.Mutation;
 import com.google.common.base.MoreObjects;
-import com.google.common.collect.ImmutableList;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.GroupByKey;
