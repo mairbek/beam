@@ -207,6 +207,7 @@ public class SpannerIO {
 
         @ProcessElement
         public void processElement(ProcessContext c) {
+            // TODO(mairbek): Lookahead and sort...
             List<MutationGroup> batch = new ArrayList<>();
             KV<String, Iterable<MutationGroup>> kv = c.element();
             long batchSize = 0;
