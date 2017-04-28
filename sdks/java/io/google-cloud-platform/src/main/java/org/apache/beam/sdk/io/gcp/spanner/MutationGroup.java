@@ -6,6 +6,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
 
 /**
  * A bundle of mutations that must be submitted atomically.
@@ -59,7 +60,7 @@ public final class MutationGroup implements Serializable, Iterable<Mutation> {
         return mutations.get(0);
     }
 
-    public ImmutableList<Mutation> attached() {
+    public List<Mutation> attached() {
         return mutations.subList(1, mutations.size());
     }
 }
