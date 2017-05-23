@@ -150,7 +150,7 @@
     <compiler.error.flag>-Werror</compiler.error.flag>
     <compiler.default.pkginfo.flag>-Xpkginfo:always</compiler.default.pkginfo.flag>
     <compiler.default.exclude>nothing</compiler.default.exclude>
-    <spanner.version>0.16.0-beta</spanner.version>
+    <spanner.version>0.17.3-beta-SNAPSHOT</spanner.version>
     <google-cloud-core.version>1.0.0-rc3</google-cloud-core.version>
   </properties>
 
