@@ -81,10 +81,12 @@ import org.slf4j.LoggerFactory;
  * batching.
  *
  * <p>The transform does not provide same transactional guarantees as Cloud Spanner. In particular,
+ * <ul>
  * <li>Mutations are not submitted atomically;
  * <li>A mutation is applied at least once;
  * <li>If the pipeline was unexpectedly stopped, mutations that were already applied will not get
  *     rolled back.
+ * </ul>
  */
 @Experimental(Experimental.Kind.SOURCE_SINK)
 public class SpannerIO {
