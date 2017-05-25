@@ -25,10 +25,12 @@ import com.google.cloud.spanner.Database;
 import com.google.cloud.spanner.DatabaseAdminClient;
 import com.google.cloud.spanner.DatabaseClient;
 import com.google.cloud.spanner.DatabaseId;
+import com.google.cloud.spanner.ErrorCode;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Operation;
 import com.google.cloud.spanner.ResultSet;
 import com.google.cloud.spanner.Spanner;
+import com.google.cloud.spanner.SpannerException;
 import com.google.cloud.spanner.SpannerOptions;
 import com.google.cloud.spanner.Statement;
 import com.google.spanner.admin.database.v1.CreateDatabaseMetadata;
@@ -89,6 +91,10 @@ public class SpannerWriteIT {
     spanner = SpannerOptions.newBuilder().setProjectId(options.getProjectId()).build().getService();
 
     databaseAdminClient = spanner.getDatabaseAdminClient();
+
+    // Delete database if exists.
+    databaseAdminClient.dropDatabase(options.getInstanceId(), options.getDatabaseId());
+
     Operation<Database, CreateDatabaseMetadata> op =
         databaseAdminClient.createDatabase(
             options.getInstanceId(),
