@@ -59,25 +59,21 @@ public class SpannerWriteIT {
     @Description("Project ID for Spanner")
     @Default.String("apache-beam-testing")
     String getProjectId();
-
     void setProjectId(String value);
 
     @Description("Instance ID to write to in Spanner")
     @Default.String("beam-test")
     String getInstanceId();
-
     void setInstanceId(String value);
 
     @Description("Database ID to write to in Spanner")
     @Default.String("beam-testdb")
     String getDatabaseId();
-
     void setDatabaseId(String value);
 
     @Description("Table name")
     @Default.String("users")
     String getTable();
-
     void setTable(String value);
   }
 

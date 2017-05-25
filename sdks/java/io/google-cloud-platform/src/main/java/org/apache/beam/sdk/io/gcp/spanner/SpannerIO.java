@@ -220,10 +220,19 @@ public class SpannerIO {
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
       builder
+          .addIfNotNull(DisplayData.item("projectId", getProjectId()).withLabel("Output Project"))
           .addIfNotNull(
               DisplayData.item("instanceId", getInstanceId()).withLabel("Output Instance"))
           .addIfNotNull(
-              DisplayData.item("databaseId", getDatabaseId()).withLabel("Output Database"));
+              DisplayData.item("databaseId", getDatabaseId()).withLabel("Output Database"))
+          .addIfNotNull(
+              DisplayData.item("batchSizeBytes", getBatchSizeBytes())
+                  .withLabel("Batch Size in bytes"));
+      if (getServiceFactory() != null) {
+        builder.addIfNotNull(
+            DisplayData.item("serviceFactory", getServiceFactory().getClass().getName())
+                .withLabel("Service Factory"));
+      }
     }
   }
 
@@ -288,6 +297,7 @@ public class SpannerIO {
         return;
       }
       spanner.closeAsync().get();
+      spanner = null;
     }
 
     /**
