@@ -17,24 +17,34 @@
  */
 package org.apache.beam.sdk.io.gcp.spanner;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.auto.value.AutoValue;
 import com.google.cloud.ServiceFactory;
 import com.google.cloud.ServiceOptions;
+import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.AbortedException;
 import com.google.cloud.spanner.DatabaseClient;
 import com.google.cloud.spanner.DatabaseId;
+import com.google.cloud.spanner.KeySet;
 import com.google.cloud.spanner.Mutation;
+import com.google.cloud.spanner.ReadOnlyTransaction;
+import com.google.cloud.spanner.ResultSet;
 import com.google.cloud.spanner.Spanner;
 import com.google.cloud.spanner.SpannerOptions;
+import com.google.cloud.spanner.Statement;
+import com.google.cloud.spanner.Struct;
+import com.google.cloud.spanner.TimestampBound;
 import com.google.common.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.annotations.Experimental;
 import org.apache.beam.sdk.options.PipelineOptions;
+import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
@@ -44,6 +54,7 @@ import org.apache.beam.sdk.util.BackOff;
 import org.apache.beam.sdk.util.BackOffUtils;
 import org.apache.beam.sdk.util.FluentBackoff;
 import org.apache.beam.sdk.util.Sleeper;
+import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PDone;
 import org.joda.time.Duration;
@@ -81,11 +92,12 @@ import org.slf4j.LoggerFactory;
  * batching.
  *
  * <p>The transform does not provide same transactional guarantees as Cloud Spanner. In particular,
+ *
  * <ul>
- * <li>Mutations are not submitted atomically;
- * <li>A mutation is applied at least once;
- * <li>If the pipeline was unexpectedly stopped, mutations that were already applied will not get
- *     rolled back.
+ *   <li>Mutations are not submitted atomically;
+ *   <li>A mutation is applied at least once;
+ *   <li>If the pipeline was unexpectedly stopped, mutations that were already applied will not get
+ *       rolled back.
  * </ul>
  */
 @Experimental(Experimental.Kind.SOURCE_SINK)
@@ -93,6 +105,13 @@ public class SpannerIO {
 
   private static final long DEFAULT_BATCH_SIZE = 1024 * 1024; // 1 MB
 
+  @Experimental
+  public static Read read() {
+    return new AutoValue_SpannerIO_Read.Builder()
+        .setTimestampBound(TimestampBound.strong())
+        .setKeySet(KeySet.all())
+        .build();
+  }
   /**
    * Creates an uninitialized instance of {@link Write}. Before use, the {@link Write} must be
    * configured with a {@link Write#withInstanceId} and {@link Write#withDatabaseId} that identify
@@ -101,6 +120,269 @@ public class SpannerIO {
   @Experimental
   public static Write write() {
     return new AutoValue_SpannerIO_Write.Builder().setBatchSize(DEFAULT_BATCH_SIZE).build();
+  }
+
+  /**
+   * Read transform.
+   */
+  @Experimental(Experimental.Kind.SOURCE_SINK)
+  @AutoValue
+  public abstract static class Read extends PTransform<PBegin, PCollection<Struct>> {
+    @Nullable
+    abstract String getProjectId();
+
+    @Nullable
+    abstract String getInstanceId();
+
+    @Nullable
+    abstract String getDatabaseId();
+
+    @Nullable
+    abstract TimestampBound getTimestampBound();
+
+    @Nullable
+    abstract Statement getQuery();
+
+    @Nullable
+    abstract String getTable();
+
+    @Nullable
+    abstract String getIndex();
+
+    @Nullable
+    abstract List<String> getColumns();
+
+    @Nullable
+    abstract KeySet getKeySet();
+
+    abstract Builder toBuilder();
+
+    @Nullable
+    @VisibleForTesting
+    abstract ServiceFactory<Spanner, SpannerOptions> getServiceFactory();
+
+    public Read withTimestamp(Timestamp timestamp) {
+      return withTimestampBound(TimestampBound.ofReadTimestamp(timestamp));
+    }
+
+    public Read withTimestampBound(TimestampBound timestampBound) {
+      return toBuilder().setTimestampBound(timestampBound).build();
+    }
+
+    public Read withTable(String table) {
+      return toBuilder().setTable(table).build();
+    }
+
+    public Read withColumns(String... columns) {
+      return withColumns(Arrays.asList(columns));
+    }
+
+    public Read withColumns(List<String> columns) {
+      return toBuilder().setColumns(columns).build();
+    }
+
+    public Read withQuery(Statement statement) {
+      return toBuilder().setQuery(statement).build();
+    }
+
+    public Read withQuery(String sql) {
+      return withQuery(Statement.of(sql));
+    }
+
+    public Read withKeySet(KeySet keySet) {
+      return toBuilder().setKeySet(keySet).build();
+    }
+
+    @AutoValue.Builder
+    abstract static class Builder {
+      abstract Builder setProjectId(String projectId);
+
+      abstract Builder setInstanceId(String instanceId);
+
+      abstract Builder setDatabaseId(String databaseId);
+
+      abstract Builder setTimestampBound(TimestampBound timestampBound);
+
+      abstract Builder setQuery(Statement statement);
+
+      abstract Builder setTable(String table);
+
+      abstract Builder setIndex(String index);
+
+      abstract Builder setColumns(List<String> columns);
+
+      abstract Builder setKeySet(KeySet keySet);
+
+      @VisibleForTesting
+      abstract Builder setServiceFactory(ServiceFactory<Spanner, SpannerOptions> serviceFactory);
+
+      abstract Read build();
+    }
+
+    SpannerOptions getSpannerOptions() {
+      SpannerOptions.Builder builder = SpannerOptions.newBuilder();
+      if (getServiceFactory() != null) {
+        builder.setServiceFactory(getServiceFactory());
+      }
+      return builder.build();
+    }
+
+    /**
+     * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner project.
+     *
+     * <p>Does not modify this object.
+     */
+    public Read withProjectId(String projectId) {
+      return toBuilder().setProjectId(projectId).build();
+    }
+
+    /**
+     * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
+     * instance.
+     *
+     * <p>Does not modify this object.
+     */
+    public Read withInstanceId(String instanceId) {
+      return toBuilder().setInstanceId(instanceId).build();
+    }
+
+    /**
+     * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
+     * database.
+     *
+     * <p>Does not modify this object.
+     */
+    public Read withDatabaseId(String databaseId) {
+      return toBuilder().setDatabaseId(databaseId).build();
+    }
+
+    @Override
+    public void validate(PipelineOptions options) {
+      checkNotNull(
+          getInstanceId(),
+          "SpannerIO.read() requires instance id to be set with withInstanceId method");
+      checkNotNull(
+          getDatabaseId(),
+          "SpannerIO.read() requires database id to be set with withDatabaseId method");
+      checkNotNull(
+          getTimestampBound(),
+          "SpannerIO.read() runs in a read only transaction and requires timestamp to be set "
+              + "with withTimestampBound or withTimestamp method");
+
+      if (getQuery() != null) {
+        // TODO: validate query?
+      } else if (getTable() != null) {
+        // Assume read
+        checkNotNull(
+            getColumns(),
+            "For a read operation SpannerIO.read() requires a list of "
+                + "columns to set with withColumns method");
+        checkArgument(
+            !getColumns().isEmpty(),
+            "For a read operation SpannerIO.read() requires a"
+                + " list of columns to set with withColumns method");
+      } else {
+        throw new IllegalArgumentException(
+            "SpannerIO.read() requires configuring query or read " + "operation.");
+      }
+    }
+
+    @Override
+    public PCollection<Struct> expand(PBegin input) {
+      if (getQuery() != null) {
+        return input
+            .apply(Create.of(1))
+            .apply(
+                "Execute query",
+                ParDo.of(
+                    new SimpleSpannerReadFn(this) {
+                      @ProcessElement
+                      public void processElement(ProcessContext c) throws Exception {
+                        TimestampBound timestampBound = config.getTimestampBound();
+                        try (ReadOnlyTransaction readOnlyTransaction =
+                            databaseClient.readOnlyTransaction(timestampBound)) {
+                          ResultSet resultSet = readOnlyTransaction.executeQuery(config.getQuery());
+                          while (resultSet.next()) {
+                            c.output(resultSet.getCurrentRowAsStruct());
+                          }
+                        }
+                      }
+                    }));
+      }
+      if (getIndex() != null) {
+        return input
+            .apply(Create.of(1))
+            .apply(
+                "Execute index read",
+                ParDo.of(
+                    new SimpleSpannerReadFn(this) {
+                      @ProcessElement
+                      public void processElement(ProcessContext c) throws Exception {
+                        TimestampBound timestampBound = config.getTimestampBound();
+                        try (ReadOnlyTransaction readOnlyTransaction =
+                            databaseClient.readOnlyTransaction(timestampBound)) {
+                          ResultSet resultSet =
+                              readOnlyTransaction.readUsingIndex(
+                                  config.getTable(),
+                                  config.getIndex(),
+                                  config.getKeySet(),
+                                  config.getColumns());
+                          while (resultSet.next()) {
+                            c.output(resultSet.getCurrentRowAsStruct());
+                          }
+                        }
+                      }
+                    }));
+      }
+      return input
+          .apply(Create.of(1))
+          .apply(
+              "Execute read",
+              ParDo.of(
+                  new SimpleSpannerReadFn(this) {
+                    @ProcessElement
+                    public void processElement(ProcessContext c) throws Exception {
+                      TimestampBound timestampBound = config.getTimestampBound();
+                      try (ReadOnlyTransaction readOnlyTransaction =
+                          databaseClient.readOnlyTransaction(timestampBound)) {
+                        ResultSet resultSet =
+                            readOnlyTransaction.read(
+                                config.getTable(), config.getKeySet(), config.getColumns());
+                        while (resultSet.next()) {
+                          c.output(resultSet.getCurrentRowAsStruct());
+                        }
+                      }
+                    }
+                  }));
+    }
+  }
+
+  private static class SimpleSpannerReadFn extends DoFn<Object, Struct> {
+    final Read config;
+    transient Spanner service;
+    transient DatabaseClient databaseClient;
+
+    private SimpleSpannerReadFn(Read config) {
+      this.config = config;
+    }
+
+    @Setup
+    public void setup() throws Exception {
+      SpannerOptions options = config.getSpannerOptions();
+      service = options.getService();
+      String projectId =
+          config.getProjectId() == null
+              ? ServiceOptions.getDefaultProjectId()
+              : config.getProjectId();
+      databaseClient =
+          service.getDatabaseClient(
+              DatabaseId.of(projectId, config.getInstanceId(), config.getDatabaseId()));
+    }
+
+    @Teardown
+    public void tearDown() throws Exception {
+      service.closeAsync().wait();
+    }
   }
 
   /**
