@@ -89,6 +89,10 @@ public class SpannerWriteIT {
     spanner = SpannerOptions.newBuilder().setProjectId(options.getProjectId()).build().getService();
 
     databaseAdminClient = spanner.getDatabaseAdminClient();
+
+    // Delete database if exists.
+    databaseAdminClient.dropDatabase(options.getInstanceId(), options.getDatabaseId());
+
     Operation<Database, CreateDatabaseMetadata> op =
         databaseAdminClient.createDatabase(
             options.getInstanceId(),
