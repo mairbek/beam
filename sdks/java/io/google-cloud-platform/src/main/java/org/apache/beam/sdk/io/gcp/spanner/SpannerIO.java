@@ -64,21 +64,57 @@ import org.slf4j.LoggerFactory;
 /**
  * Experimental {@link PTransform Transforms} for reading from and writing to <a
  * href="https://cloud.google.com/spanner">Google Cloud Spanner</a>.
- *
+ * <p>
  * <h3>Reading from Cloud Spanner</h3>
+ * <p>
+ * <p>To read from Cloud Spanner apply {@link SpannerIO.Read} transformation, that returns a
+ * {@link PCollection<Struct>}. Here, each struct represents an individual row returned from the
+ * read operation.
+ * {@link SpannerIO.Read} supports both Query and Read APIs.
+ * <p>
+ * <p>To run a <b>query</b>, specify a {@link SpannerIO.Read#withQuery} option. See the following
+ * example:
+ * <p>
+ * <pre>{@code
+ *  PCollection<Struct> rows = p.apply(
+ *      SpannerIO.read()
+ *          .withInstanceId(instanceId)
+ *          .withDatabaseId(dbId)
+ *          .withQuery("SELECT name, email FROM users")
+ *          .withTimestamp(Timestamp.now()));
+ * }</pre>
+ * <p>
+ * <p>To use the Read API, specify the table name, a list of columns and, optionally, a KeySet.
+ * <pre>{@code
+ *  PCollection<Struct> rows = p.apply(
+ *      SpannerIO.read()
+ *          .withInstanceId(instanceId)
+ *          .withDatabaseId(dbId)
+ *          .withTable(“users”)
+ *          .withColumns(“name”, “email”)
+ *          .withTimestampBound(TimestampBound.strong()));
+ * }</pre>
+ * <p>
+ * <p>To optimally read using index, specify the index name using withIndex option.
+ * <p>
+ * <p>The pipeline is guaranteed to be executed on a consistent snapshot of data, utilizing the
+ * power of read only transactions. You can use {@link SpannerIO
+ * .Read#withTimestampBound}/{@link SpannerIO.Read#withTimestamp} to control staleness of the data.
+ * To read more about Spanner read only transactions, follow the
+ * <a href="https://cloud.google.com/spanner/docs/transactions#read-only_transactions">documentation
+ * link</a>.
  *
- * <p>This functionality is not yet implemented.
- *
+ * <p>
  * <h3>Writing to Cloud Spanner</h3>
- *
+ * <p>
  * <p>The Cloud Spanner {@link SpannerIO.Write} transform writes to Cloud Spanner by executing a
  * collection of input row {@link Mutation Mutations}. The mutations grouped into batches for
  * efficiency.
- *
+ * <p>
  * <p>To configure the write transform, create an instance using {@link #write()} and then specify
  * the destination Cloud Spanner instance ({@link Write#withInstanceId(String)} and destination
  * database ({@link Write#withDatabaseId(String)}). For example:
- *
+ * <p>
  * <pre>{@code
  * // Earlier in the pipeline, create a PCollection of Mutations to be written to Cloud Spanner.
  * PCollection<Mutation> mutations = ...;
@@ -86,18 +122,18 @@ import org.slf4j.LoggerFactory;
  * mutations.apply(
  *     "Write", SpannerIO.write().withInstanceId("instance").withDatabaseId("database"));
  * }</pre>
- *
+ * <p>
  * <p>The default size of the batch is set to 1MB, to override this use {@link
  * Write#withBatchSize(long)}. Setting batch size to a small value or zero practically disables
  * batching.
- *
+ * <p>
  * <p>The transform does not provide same transactional guarantees as Cloud Spanner. In particular,
- *
+ * <p>
  * <ul>
- *   <li>Mutations are not submitted atomically;
- *   <li>A mutation is applied at least once;
- *   <li>If the pipeline was unexpectedly stopped, mutations that were already applied will not get
- *       rolled back.
+ * <li>Mutations are not submitted atomically;
+ * <li>A mutation is applied at least once;
+ * <li>If the pipeline was unexpectedly stopped, mutations that were already applied will not get
+ * rolled back.
  * </ul>
  */
 @Experimental(Experimental.Kind.SOURCE_SINK)
@@ -108,10 +144,11 @@ public class SpannerIO {
   @Experimental
   public static Read read() {
     return new AutoValue_SpannerIO_Read.Builder()
-        .setTimestampBound(TimestampBound.strong())
-        .setKeySet(KeySet.all())
-        .build();
+            .setTimestampBound(TimestampBound.strong())
+            .setKeySet(KeySet.all())
+            .build();
   }
+
   /**
    * Creates an uninitialized instance of {@link Write}. Before use, the {@link Write} must be
    * configured with a {@link Write#withInstanceId} and {@link Write#withDatabaseId} that identify
@@ -229,7 +266,7 @@ public class SpannerIO {
 
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner project.
-     *
+     * <p>
      * <p>Does not modify this object.
      */
     public Read withProjectId(String projectId) {
@@ -239,7 +276,7 @@ public class SpannerIO {
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
      * instance.
-     *
+     * <p>
      * <p>Does not modify this object.
      */
     public Read withInstanceId(String instanceId) {
@@ -249,7 +286,7 @@ public class SpannerIO {
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
      * database.
-     *
+     * <p>
      * <p>Does not modify this object.
      */
     public Read withDatabaseId(String databaseId) {
@@ -259,31 +296,31 @@ public class SpannerIO {
     @Override
     public void validate(PipelineOptions options) {
       checkNotNull(
-          getInstanceId(),
-          "SpannerIO.read() requires instance id to be set with withInstanceId method");
+              getInstanceId(),
+              "SpannerIO.read() requires instance id to be set with withInstanceId method");
       checkNotNull(
-          getDatabaseId(),
-          "SpannerIO.read() requires database id to be set with withDatabaseId method");
+              getDatabaseId(),
+              "SpannerIO.read() requires database id to be set with withDatabaseId method");
       checkNotNull(
-          getTimestampBound(),
-          "SpannerIO.read() runs in a read only transaction and requires timestamp to be set "
-              + "with withTimestampBound or withTimestamp method");
+              getTimestampBound(),
+              "SpannerIO.read() runs in a read only transaction and requires timestamp to be set "
+                      + "with withTimestampBound or withTimestamp method");
 
       if (getQuery() != null) {
         // TODO: validate query?
       } else if (getTable() != null) {
         // Assume read
         checkNotNull(
-            getColumns(),
-            "For a read operation SpannerIO.read() requires a list of "
-                + "columns to set with withColumns method");
+                getColumns(),
+                "For a read operation SpannerIO.read() requires a list of "
+                        + "columns to set with withColumns method");
         checkArgument(
-            !getColumns().isEmpty(),
-            "For a read operation SpannerIO.read() requires a"
-                + " list of columns to set with withColumns method");
+                !getColumns().isEmpty(),
+                "For a read operation SpannerIO.read() requires a"
+                        + " list of columns to set with withColumns method");
       } else {
         throw new IllegalArgumentException(
-            "SpannerIO.read() requires configuring query or read " + "operation.");
+                "SpannerIO.read() requires configuring query or read " + "operation.");
       }
     }
 
@@ -291,69 +328,69 @@ public class SpannerIO {
     public PCollection<Struct> expand(PBegin input) {
       if (getQuery() != null) {
         return input
-            .apply(Create.of(1))
-            .apply(
-                "Execute query",
-                ParDo.of(
-                    new SimpleSpannerReadFn(this) {
-                      @ProcessElement
-                      public void processElement(ProcessContext c) throws Exception {
-                        TimestampBound timestampBound = config.getTimestampBound();
-                        try (ReadOnlyTransaction readOnlyTransaction =
-                            databaseClient.readOnlyTransaction(timestampBound)) {
-                          ResultSet resultSet = readOnlyTransaction.executeQuery(config.getQuery());
-                          while (resultSet.next()) {
-                            c.output(resultSet.getCurrentRowAsStruct());
-                          }
-                        }
-                      }
-                    }));
+                .apply(Create.of(1))
+                .apply(
+                        "Execute query",
+                        ParDo.of(
+                                new SimpleSpannerReadFn(this) {
+                                  @ProcessElement
+                                  public void processElement(ProcessContext c) throws Exception {
+                                    TimestampBound timestampBound = config.getTimestampBound();
+                                    try (ReadOnlyTransaction readOnlyTransaction =
+                                                 databaseClient.readOnlyTransaction(timestampBound)) {
+                                      ResultSet resultSet = readOnlyTransaction.executeQuery(config.getQuery());
+                                      while (resultSet.next()) {
+                                        c.output(resultSet.getCurrentRowAsStruct());
+                                      }
+                                    }
+                                  }
+                                }));
       }
       if (getIndex() != null) {
         return input
-            .apply(Create.of(1))
-            .apply(
-                "Execute index read",
-                ParDo.of(
-                    new SimpleSpannerReadFn(this) {
-                      @ProcessElement
-                      public void processElement(ProcessContext c) throws Exception {
-                        TimestampBound timestampBound = config.getTimestampBound();
-                        try (ReadOnlyTransaction readOnlyTransaction =
-                            databaseClient.readOnlyTransaction(timestampBound)) {
-                          ResultSet resultSet =
-                              readOnlyTransaction.readUsingIndex(
-                                  config.getTable(),
-                                  config.getIndex(),
-                                  config.getKeySet(),
-                                  config.getColumns());
-                          while (resultSet.next()) {
-                            c.output(resultSet.getCurrentRowAsStruct());
-                          }
-                        }
-                      }
-                    }));
+                .apply(Create.of(1))
+                .apply(
+                        "Execute index read",
+                        ParDo.of(
+                                new SimpleSpannerReadFn(this) {
+                                  @ProcessElement
+                                  public void processElement(ProcessContext c) throws Exception {
+                                    TimestampBound timestampBound = config.getTimestampBound();
+                                    try (ReadOnlyTransaction readOnlyTransaction =
+                                                 databaseClient.readOnlyTransaction(timestampBound)) {
+                                      ResultSet resultSet =
+                                              readOnlyTransaction.readUsingIndex(
+                                                      config.getTable(),
+                                                      config.getIndex(),
+                                                      config.getKeySet(),
+                                                      config.getColumns());
+                                      while (resultSet.next()) {
+                                        c.output(resultSet.getCurrentRowAsStruct());
+                                      }
+                                    }
+                                  }
+                                }));
       }
       return input
-          .apply(Create.of(1))
-          .apply(
-              "Execute read",
-              ParDo.of(
-                  new SimpleSpannerReadFn(this) {
-                    @ProcessElement
-                    public void processElement(ProcessContext c) throws Exception {
-                      TimestampBound timestampBound = config.getTimestampBound();
-                      try (ReadOnlyTransaction readOnlyTransaction =
-                          databaseClient.readOnlyTransaction(timestampBound)) {
-                        ResultSet resultSet =
-                            readOnlyTransaction.read(
-                                config.getTable(), config.getKeySet(), config.getColumns());
-                        while (resultSet.next()) {
-                          c.output(resultSet.getCurrentRowAsStruct());
-                        }
-                      }
-                    }
-                  }));
+              .apply(Create.of(1))
+              .apply(
+                      "Execute read",
+                      ParDo.of(
+                              new SimpleSpannerReadFn(this) {
+                                @ProcessElement
+                                public void processElement(ProcessContext c) throws Exception {
+                                  TimestampBound timestampBound = config.getTimestampBound();
+                                  try (ReadOnlyTransaction readOnlyTransaction =
+                                               databaseClient.readOnlyTransaction(timestampBound)) {
+                                    ResultSet resultSet =
+                                            readOnlyTransaction.read(
+                                                    config.getTable(), config.getKeySet(), config.getColumns());
+                                    while (resultSet.next()) {
+                                      c.output(resultSet.getCurrentRowAsStruct());
+                                    }
+                                  }
+                                }
+                              }));
     }
   }
 
@@ -371,12 +408,12 @@ public class SpannerIO {
       SpannerOptions options = config.getSpannerOptions();
       service = options.getService();
       String projectId =
-          config.getProjectId() == null
-              ? ServiceOptions.getDefaultProjectId()
-              : config.getProjectId();
+              config.getProjectId() == null
+                      ? ServiceOptions.getDefaultProjectId()
+                      : config.getProjectId();
       databaseClient =
-          service.getDatabaseClient(
-              DatabaseId.of(projectId, config.getInstanceId(), config.getDatabaseId()));
+              service.getDatabaseClient(
+                      DatabaseId.of(projectId, config.getInstanceId(), config.getDatabaseId()));
     }
 
     @Teardown
@@ -438,7 +475,7 @@ public class SpannerIO {
 
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner project.
-     *
+     * <p>
      * <p>Does not modify this object.
      */
     public Write withProjectId(String projectId) {
@@ -448,7 +485,7 @@ public class SpannerIO {
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
      * instance.
-     *
+     * <p>
      * <p>Does not modify this object.
      */
     public Write withInstanceId(String instanceId) {
@@ -457,7 +494,7 @@ public class SpannerIO {
 
     /**
      * Returns a new {@link SpannerIO.Write} with a new batch size limit.
-     *
+     * <p>
      * <p>Does not modify this object.
      */
     public Write withBatchSize(long batchSize) {
@@ -467,7 +504,7 @@ public class SpannerIO {
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
      * database.
-     *
+     * <p>
      * <p>Does not modify this object.
      */
     public Write withDatabaseId(String databaseId) {
@@ -482,11 +519,11 @@ public class SpannerIO {
     @Override
     public void validate(PipelineOptions options) {
       checkNotNull(
-          getInstanceId(),
-          "SpannerIO.write() requires instance id to be set with withInstanceId method");
+              getInstanceId(),
+              "SpannerIO.write() requires instance id to be set with withInstanceId method");
       checkNotNull(
-          getDatabaseId(),
-          "SpannerIO.write() requires database id to be set with withDatabaseId method");
+              getDatabaseId(),
+              "SpannerIO.write() requires database id to be set with withDatabaseId method");
     }
 
     @Override
@@ -499,14 +536,16 @@ public class SpannerIO {
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
       builder
-          .addIfNotNull(
-              DisplayData.item("instanceId", getInstanceId()).withLabel("Output Instance"))
-          .addIfNotNull(
-              DisplayData.item("databaseId", getDatabaseId()).withLabel("Output Database"));
+              .addIfNotNull(
+                      DisplayData.item("instanceId", getInstanceId()).withLabel("Output Instance"))
+              .addIfNotNull(
+                      DisplayData.item("databaseId", getDatabaseId()).withLabel("Output Database"));
     }
   }
 
-  /** Batches together and writes mutations to Google Cloud Spanner. */
+  /**
+   * Batches together and writes mutations to Google Cloud Spanner.
+   */
   @VisibleForTesting
   static class SpannerWriteFn extends DoFn<Mutation, Void> {
     private static final Logger LOG = LoggerFactory.getLogger(SpannerWriteFn.class);
@@ -519,9 +558,9 @@ public class SpannerIO {
 
     private static final int MAX_RETRIES = 5;
     private static final FluentBackoff BUNDLE_WRITE_BACKOFF =
-        FluentBackoff.DEFAULT
-            .withMaxRetries(MAX_RETRIES)
-            .withInitialBackoff(Duration.standardSeconds(5));
+            FluentBackoff.DEFAULT
+                    .withMaxRetries(MAX_RETRIES)
+                    .withInitialBackoff(Duration.standardSeconds(5));
 
     @VisibleForTesting
     SpannerWriteFn(Write spec) {
@@ -532,8 +571,8 @@ public class SpannerIO {
     public void setup() throws Exception {
       spanner = spec.getSpannerOptions().getService();
       dbClient =
-          spanner.getDatabaseClient(
-              DatabaseId.of(projectId(), spec.getInstanceId(), spec.getDatabaseId()));
+              spanner.getDatabaseClient(
+                      DatabaseId.of(projectId(), spec.getInstanceId(), spec.getDatabaseId()));
       mutations = new ArrayList<>();
       batchSize = 0;
     }
@@ -550,8 +589,8 @@ public class SpannerIO {
 
     private String projectId() {
       return spec.getProjectId() == null
-          ? ServiceOptions.getDefaultProjectId()
-          : spec.getProjectId();
+              ? ServiceOptions.getDefaultProjectId()
+              : spec.getProjectId();
     }
 
     @FinishBundle
@@ -571,12 +610,12 @@ public class SpannerIO {
 
     /**
      * Writes a batch of mutations to Cloud Spanner.
-     *
+     * <p>
      * <p>If a commit fails, it will be retried up to {@link #MAX_RETRIES} times. If the retry limit
      * is exceeded, the last exception from Cloud Spanner will be thrown.
      *
      * @throws AbortedException if the commit fails or IOException or InterruptedException if
-     *     backing off between retries fails.
+     *                          backing off between retries fails.
      */
     private void flushBatch() throws AbortedException, IOException, InterruptedException {
       LOG.debug("Writing batch of {} mutations", mutations.size());
@@ -594,7 +633,7 @@ public class SpannerIO {
           // Only log the code and message for potentially-transient errors. The entire exception
           // will be propagated upon the last retry.
           LOG.error(
-              "Error writing to Spanner ({}): {}", exception.getCode(), exception.getMessage());
+                  "Error writing to Spanner ({}): {}", exception.getCode(), exception.getMessage());
           if (!BackOffUtils.next(sleeper, backoff)) {
             LOG.error("Aborting after {} retries.", MAX_RETRIES);
             throw exception;
@@ -610,10 +649,11 @@ public class SpannerIO {
     public void populateDisplayData(Builder builder) {
       super.populateDisplayData(builder);
       builder
-          .addIfNotNull(DisplayData.item("instanceId", spec.getInstanceId()).withLabel("Instance"))
-          .addIfNotNull(DisplayData.item("databaseId", spec.getDatabaseId()).withLabel("Database"));
+              .addIfNotNull(DisplayData.item("instanceId", spec.getInstanceId()).withLabel("Instance"))
+              .addIfNotNull(DisplayData.item("databaseId", spec.getDatabaseId()).withLabel("Database"));
     }
   }
 
-  private SpannerIO() {} // Prevent construction.
+  private SpannerIO() {
+  } // Prevent construction.
 }
