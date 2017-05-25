@@ -340,9 +340,7 @@ public class SpannerIO {
     @Override
     public void populateDisplayData(Builder builder) {
       super.populateDisplayData(builder);
-      builder
-          .addIfNotNull(DisplayData.item("instanceId", spec.getInstanceId()).withLabel("Instance"))
-          .addIfNotNull(DisplayData.item("databaseId", spec.getDatabaseId()).withLabel("Database"));
+      spec.populateDisplayData(builder);
     }
   }
 
