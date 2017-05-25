@@ -124,7 +124,7 @@ import org.slf4j.LoggerFactory;
  * }</pre>
  * <p>
  * <p>The default size of the batch is set to 1MB, to override this use {@link
- * Write#withBatchSize(long)}. Setting batch size to a small value or zero practically disables
+ * Write#withBatchSizeBytes(long)}. Setting batch size to a small value or zero practically disables
  * batching.
  * <p>
  * <p>The transform does not provide same transactional guarantees as Cloud Spanner. In particular,
@@ -139,15 +139,7 @@ import org.slf4j.LoggerFactory;
 @Experimental(Experimental.Kind.SOURCE_SINK)
 public class SpannerIO {
 
-  private static final long DEFAULT_BATCH_SIZE = 1024 * 1024; // 1 MB
-
-  @Experimental
-  public static Read read() {
-    return new AutoValue_SpannerIO_Read.Builder()
-            .setTimestampBound(TimestampBound.strong())
-            .setKeySet(KeySet.all())
-            .build();
-  }
+  private static final long DEFAULT_BATCH_SIZE_BYTES = 1024 * 1024; // 1 MB
 
   /**
    * Creates an uninitialized instance of {@link Write}. Before use, the {@link Write} must be
@@ -156,7 +148,9 @@ public class SpannerIO {
    */
   @Experimental
   public static Write write() {
-    return new AutoValue_SpannerIO_Write.Builder().setBatchSize(DEFAULT_BATCH_SIZE).build();
+    return new AutoValue_SpannerIO_Write.Builder()
+        .setBatchSizeBytes(DEFAULT_BATCH_SIZE_BYTES)
+        .build();
   }
 
   /**
@@ -440,7 +434,7 @@ public class SpannerIO {
     @Nullable
     abstract String getDatabaseId();
 
-    abstract long getBatchSize();
+    abstract long getBatchSizeBytes();
 
     @Nullable
     @VisibleForTesting
@@ -457,7 +451,7 @@ public class SpannerIO {
 
       abstract Builder setDatabaseId(String databaseId);
 
-      abstract Builder setBatchSize(long batchSize);
+      abstract Builder setBatchSizeBytes(long batchSizeBytes);
 
       @VisibleForTesting
       abstract Builder setServiceFactory(ServiceFactory<Spanner, SpannerOptions> serviceFactory);
@@ -475,7 +469,7 @@ public class SpannerIO {
 
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner project.
-     * <p>
+     *
      * <p>Does not modify this object.
      */
     public Write withProjectId(String projectId) {
@@ -485,7 +479,7 @@ public class SpannerIO {
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
      * instance.
-     * <p>
+     *
      * <p>Does not modify this object.
      */
     public Write withInstanceId(String instanceId) {
@@ -494,17 +488,17 @@ public class SpannerIO {
 
     /**
      * Returns a new {@link SpannerIO.Write} with a new batch size limit.
-     * <p>
+     *
      * <p>Does not modify this object.
      */
-    public Write withBatchSize(long batchSize) {
-      return toBuilder().setBatchSize(batchSize).build();
+    public Write withBatchSizeBytes(long batchSizeBytes) {
+      return toBuilder().setBatchSizeBytes(batchSizeBytes).build();
     }
 
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
      * database.
-     * <p>
+     *
      * <p>Does not modify this object.
      */
     public Write withDatabaseId(String databaseId) {
@@ -519,11 +513,11 @@ public class SpannerIO {
     @Override
     public void validate(PipelineOptions options) {
       checkNotNull(
-              getInstanceId(),
-              "SpannerIO.write() requires instance id to be set with withInstanceId method");
+          getInstanceId(),
+          "SpannerIO.write() requires instance id to be set with withInstanceId method");
       checkNotNull(
-              getDatabaseId(),
-              "SpannerIO.write() requires database id to be set with withDatabaseId method");
+          getDatabaseId(),
+          "SpannerIO.write() requires database id to be set with withDatabaseId method");
     }
 
     @Override
@@ -536,10 +530,10 @@ public class SpannerIO {
     public void populateDisplayData(DisplayData.Builder builder) {
       super.populateDisplayData(builder);
       builder
-              .addIfNotNull(
-                      DisplayData.item("instanceId", getInstanceId()).withLabel("Output Instance"))
-              .addIfNotNull(
-                      DisplayData.item("databaseId", getDatabaseId()).withLabel("Output Database"));
+          .addIfNotNull(
+              DisplayData.item("instanceId", getInstanceId()).withLabel("Output Instance"))
+          .addIfNotNull(
+              DisplayData.item("databaseId", getDatabaseId()).withLabel("Output Database"));
     }
   }
 
@@ -554,7 +548,7 @@ public class SpannerIO {
     private transient DatabaseClient dbClient;
     // Current batch of mutations to be written.
     private List<Mutation> mutations;
-    private long batchSize = 0;
+    private long batchSizeBytes = 0;
 
     private static final int MAX_RETRIES = 5;
     private static final FluentBackoff BUNDLE_WRITE_BACKOFF =
@@ -571,18 +565,18 @@ public class SpannerIO {
     public void setup() throws Exception {
       spanner = spec.getSpannerOptions().getService();
       dbClient =
-              spanner.getDatabaseClient(
-                      DatabaseId.of(projectId(), spec.getInstanceId(), spec.getDatabaseId()));
+          spanner.getDatabaseClient(
+              DatabaseId.of(projectId(), spec.getInstanceId(), spec.getDatabaseId()));
       mutations = new ArrayList<>();
-      batchSize = 0;
+      batchSizeBytes = 0;
     }
 
     @ProcessElement
     public void processElement(ProcessContext c) throws Exception {
       Mutation m = c.element();
       mutations.add(m);
-      batchSize += MutationSizeEstimator.sizeOf(m);
-      if (batchSize >= spec.getBatchSize()) {
+      batchSizeBytes += MutationSizeEstimator.sizeOf(m);
+      if (batchSizeBytes >= spec.getBatchSizeBytes()) {
         flushBatch();
       }
     }
@@ -610,12 +604,12 @@ public class SpannerIO {
 
     /**
      * Writes a batch of mutations to Cloud Spanner.
-     * <p>
+     *
      * <p>If a commit fails, it will be retried up to {@link #MAX_RETRIES} times. If the retry limit
      * is exceeded, the last exception from Cloud Spanner will be thrown.
      *
      * @throws AbortedException if the commit fails or IOException or InterruptedException if
-     *                          backing off between retries fails.
+     *     backing off between retries fails.
      */
     private void flushBatch() throws AbortedException, IOException, InterruptedException {
       LOG.debug("Writing batch of {} mutations", mutations.size());
@@ -642,18 +636,17 @@ public class SpannerIO {
       }
       LOG.debug("Successfully wrote {} mutations", mutations.size());
       mutations = new ArrayList<>();
-      batchSize = 0;
+      batchSizeBytes = 0;
     }
 
     @Override
     public void populateDisplayData(Builder builder) {
       super.populateDisplayData(builder);
       builder
-              .addIfNotNull(DisplayData.item("instanceId", spec.getInstanceId()).withLabel("Instance"))
-              .addIfNotNull(DisplayData.item("databaseId", spec.getDatabaseId()).withLabel("Database"));
+          .addIfNotNull(DisplayData.item("instanceId", spec.getInstanceId()).withLabel("Instance"))
+          .addIfNotNull(DisplayData.item("databaseId", spec.getDatabaseId()).withLabel("Database"));
     }
   }
 
-  private SpannerIO() {
-  } // Prevent construction.
+  private SpannerIO() {} // Prevent construction.
 }
