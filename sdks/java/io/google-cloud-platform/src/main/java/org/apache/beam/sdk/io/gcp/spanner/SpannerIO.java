@@ -60,20 +60,21 @@ import org.apache.beam.sdk.values.PDone;
 import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 /**
  * Experimental {@link PTransform Transforms} for reading from and writing to <a
  * href="https://cloud.google.com/spanner">Google Cloud Spanner</a>.
- * <p>
+ *
  * <h3>Reading from Cloud Spanner</h3>
- * <p>
+ *
  * <p>To read from Cloud Spanner apply {@link SpannerIO.Read} transformation, that returns a
- * {@link PCollection<Struct>}. Here, each struct represents an individual row returned from the
- * read operation.
+ * {@link PCollection} of {@link Struct Structs}. Here, each struct represents an individual row
+ * returned from the read operation.
  * {@link SpannerIO.Read} supports both Query and Read APIs.
- * <p>
+ *
  * <p>To run a <b>query</b>, specify a {@link SpannerIO.Read#withQuery} option. See the following
  * example:
- * <p>
+ *
  * <pre>{@code
  *  PCollection<Struct> rows = p.apply(
  *      SpannerIO.read()
@@ -82,7 +83,7 @@ import org.slf4j.LoggerFactory;
  *          .withQuery("SELECT name, email FROM users")
  *          .withTimestamp(Timestamp.now()));
  * }</pre>
- * <p>
+ *
  * <p>To use the Read API, specify the table name, a list of columns and, optionally, a KeySet.
  * <pre>{@code
  *  PCollection<Struct> rows = p.apply(
@@ -93,9 +94,9 @@ import org.slf4j.LoggerFactory;
  *          .withColumns(“name”, “email”)
  *          .withTimestampBound(TimestampBound.strong()));
  * }</pre>
- * <p>
+ *
  * <p>To optimally read using index, specify the index name using withIndex option.
- * <p>
+ *
  * <p>The pipeline is guaranteed to be executed on a consistent snapshot of data, utilizing the
  * power of read only transactions. You can use {@link SpannerIO
  * .Read#withTimestampBound}/{@link SpannerIO.Read#withTimestamp} to control staleness of the data.
@@ -103,17 +104,17 @@ import org.slf4j.LoggerFactory;
  * <a href="https://cloud.google.com/spanner/docs/transactions#read-only_transactions">documentation
  * link</a>.
  *
- * <p>
+ *
  * <h3>Writing to Cloud Spanner</h3>
- * <p>
+ *
  * <p>The Cloud Spanner {@link SpannerIO.Write} transform writes to Cloud Spanner by executing a
  * collection of input row {@link Mutation Mutations}. The mutations grouped into batches for
  * efficiency.
- * <p>
+ *
  * <p>To configure the write transform, create an instance using {@link #write()} and then specify
  * the destination Cloud Spanner instance ({@link Write#withInstanceId(String)} and destination
  * database ({@link Write#withDatabaseId(String)}). For example:
- * <p>
+ *
  * <pre>{@code
  * // Earlier in the pipeline, create a PCollection of Mutations to be written to Cloud Spanner.
  * PCollection<Mutation> mutations = ...;
@@ -121,13 +122,13 @@ import org.slf4j.LoggerFactory;
  * mutations.apply(
  *     "Write", SpannerIO.write().withInstanceId("instance").withDatabaseId("database"));
  * }</pre>
- * <p>
+ *
  * <p>The default size of the batch is set to 1MB, to override this use {@link
  * Write#withBatchSizeBytes(long)}. Setting batch size to a small value or zero practically disables
  * batching.
- * <p>
+ *
  * <p>The transform does not provide same transactional guarantees as Cloud Spanner. In particular,
- * <p>
+ *
  * <ul>
  * <li>Mutations are not submitted atomically;
  * <li>A mutation is applied at least once;
@@ -271,8 +272,6 @@ public class SpannerIO {
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner project.
      *
-     * <p>
-     *
      * <p>Does not modify this object.
      */
     public Read withProjectId(String projectId) {
@@ -283,8 +282,6 @@ public class SpannerIO {
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
      * instance.
      *
-     * <p>
-     *
      * <p>Does not modify this object.
      */
     public Read withInstanceId(String instanceId) {
@@ -294,8 +291,6 @@ public class SpannerIO {
     /**
      * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
      * database.
-     *
-     * <p>
      *
      * <p>Does not modify this object.
      */
@@ -338,7 +333,8 @@ public class SpannerIO {
     public PCollection<Struct> expand(PBegin input) {
       return input
           .apply(Create.of(1))
-          .apply("Execute query", ParDo.of(new SimpleSpannerReadFn(this)));
+          .apply("Execute query", ParDo.of(new SimpleSpannerReadFn(this))).setCoder
+                      (new StructCoder());
     }
   }
 
@@ -389,7 +385,7 @@ public class SpannerIO {
 
     @Teardown
     public void tearDown() throws Exception {
-      service.closeAsync().wait();
+      service.close();
     }
   }
 
@@ -574,7 +570,7 @@ public class SpannerIO {
       if (spanner == null) {
         return;
       }
-      spanner.closeAsync().get();
+      spanner.close();
     }
 
     /**

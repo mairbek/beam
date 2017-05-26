@@ -5,13 +5,18 @@ import com.google.cloud.Date;
 import com.google.cloud.Timestamp;
 import com.google.cloud.spanner.Struct;
 import com.google.cloud.spanner.Type;
-import java.io.*;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.beam.sdk.coders.AtomicCoder;
 import org.apache.beam.sdk.coders.CoderException;
 
-/** Coder for {@link Struct} */
+/** Coder for {@link Struct}. */
 public class StructCoder extends AtomicCoder<Struct> {
   @Override
   public void encode(Struct value, OutputStream outStream) throws IOException {
