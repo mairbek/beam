@@ -27,11 +27,9 @@ import com.google.cloud.spanner.Spanner;
 import com.google.cloud.spanner.SpannerOptions;
 import com.google.cloud.spanner.Struct;
 import com.google.spanner.admin.database.v1.CreateDatabaseMetadata;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
 import org.apache.beam.sdk.options.Default;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
@@ -49,7 +47,8 @@ import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 /** End-to-end test of Cloud Spanner Source. */
-@RunWith(JUnit4.class) public class SpannerReadIT {
+@RunWith(JUnit4.class)
+public class SpannerReadIT {
 
   @Rule public final transient TestPipeline p = TestPipeline.create();
 
@@ -58,11 +57,13 @@ import org.junit.runners.JUnit4;
     @Description("Project ID for Spanner")
     @Default.String("span-cloud-testing")
     String getProjectId();
+
     void setProjectId(String value);
 
     @Description("Instance ID to write to in Spanner")
     @Default.String("mairbek-df")
     String getInstanceId();
+
     void setInstanceId(String value);
 
     @Description("Database ID to write to in Spanner")
@@ -74,6 +75,7 @@ import org.junit.runners.JUnit4;
     @Description("Table name")
     @Default.String("users")
     String getTable();
+
     void setTable(String value);
   }
 
@@ -81,7 +83,8 @@ import org.junit.runners.JUnit4;
   private DatabaseAdminClient databaseAdminClient;
   private SpannerTestPipelineOptions options;
 
-  @Before public void setUp() throws Exception {
+  @Before
+  public void setUp() throws Exception {
     PipelineOptionsFactory.register(SpannerTestPipelineOptions.class);
     options = TestPipeline.testingPipelineOptions().as(SpannerTestPipelineOptions.class);
 
@@ -92,34 +95,53 @@ import org.junit.runners.JUnit4;
     // Delete database if exists.
     databaseAdminClient.dropDatabase(options.getInstanceId(), options.getDatabaseId());
 
-    Operation<Database, CreateDatabaseMetadata> op = databaseAdminClient
-        .createDatabase(options.getInstanceId(), options.getDatabaseId(), Collections.singleton(
-            "CREATE TABLE " + options.getTable() + " (" + "  Key           INT64,"
-                + "  Value         STRING(MAX)," + ") PRIMARY KEY (Key)"));
+    Operation<Database, CreateDatabaseMetadata> op =
+        databaseAdminClient.createDatabase(
+            options.getInstanceId(),
+            options.getDatabaseId(),
+            Collections.singleton(
+                "CREATE TABLE "
+                    + options.getTable()
+                    + " ("
+                    + "  Key           INT64,"
+                    + "  Value         STRING(MAX),"
+                    + ") PRIMARY KEY (Key)"));
     op.waitFor();
   }
 
-  @Test public void testRead() throws Exception {
-    DatabaseClient databaseClient = spanner.getDatabaseClient(
-        DatabaseId.of(options.getProjectId(), options.getInstanceId(), options.getDatabaseId()));
+  @Test
+  public void testRead() throws Exception {
+    DatabaseClient databaseClient =
+        spanner.getDatabaseClient(
+            DatabaseId.of(
+                options.getProjectId(), options.getInstanceId(), options.getDatabaseId()));
 
     List<Mutation> mutations = new ArrayList<>();
     for (int i = 0; i < 5L; i++) {
       mutations.add(
-          Mutation.newInsertOrUpdateBuilder(options.getTable()).set("key").to((long) i).set("value")
-              .to(RandomStringUtils.random(100, true, true)).build());
+          Mutation.newInsertOrUpdateBuilder(options.getTable())
+              .set("key")
+              .to((long) i)
+              .set("value")
+              .to(RandomStringUtils.random(100, true, true))
+              .build());
     }
 
     databaseClient.writeAtLeastOnce(mutations);
 
-    PCollection<Struct> output = p.apply(SpannerIO.read().withProjectId(options.getProjectId())
-        .withInstanceId(options.getInstanceId()).withDatabaseId(options.getDatabaseId())
-        .withQuery("SELECT * FROM " + options.getTable()));
+    PCollection<Struct> output =
+        p.apply(
+            SpannerIO.read()
+                .withProjectId(options.getProjectId())
+                .withInstanceId(options.getInstanceId())
+                .withDatabaseId(options.getDatabaseId())
+                .withQuery("SELECT * FROM " + options.getTable()));
     PAssert.thatSingleton(output.apply("Count rows", Count.<Struct>globally())).isEqualTo(5L);
     p.run();
   }
 
-  @After public void tearDown() throws Exception {
+  @After
+  public void tearDown() throws Exception {
     databaseAdminClient.dropDatabase(options.getInstanceId(), options.getDatabaseId());
     spanner.close();
   }

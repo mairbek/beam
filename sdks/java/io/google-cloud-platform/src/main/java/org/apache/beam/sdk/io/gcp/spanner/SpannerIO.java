@@ -166,7 +166,11 @@ public class SpannerIO {
         .build();
   }
 
-  /** Read transform. */
+  /**
+   * A {@link PTransform} that reads data from Google Cloud Spanner.
+   *
+   * @see SpannerIO
+   */
   @Experimental(Experimental.Kind.SOURCE_SINK)
   @AutoValue
   public abstract static class Read extends PTransform<PBegin, PCollection<Struct>> {
@@ -270,7 +274,7 @@ public class SpannerIO {
     }
 
     /**
-     * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner project.
+     * Returns a new {@link SpannerIO.Read} that will read from the specified Cloud Spanner project.
      *
      * <p>Does not modify this object.
      */
@@ -279,7 +283,7 @@ public class SpannerIO {
     }
 
     /**
-     * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
+     * Returns a new {@link SpannerIO.Read} that will read from the specified Cloud Spanner
      * instance.
      *
      * <p>Does not modify this object.
@@ -289,7 +293,7 @@ public class SpannerIO {
     }
 
     /**
-     * Returns a new {@link SpannerIO.Write} that will write to the specified Cloud Spanner
+     * Returns a new {@link SpannerIO.Read} that will read from the specified Cloud Spanner
      * database.
      *
      * <p>Does not modify this object.
@@ -325,7 +329,7 @@ public class SpannerIO {
                 + " list of columns to set with withColumns method");
       } else {
         throw new IllegalArgumentException(
-            "SpannerIO.read() requires configuring query or read " + "operation.");
+            "SpannerIO.read() requires configuring query or read operation.");
       }
     }
 
