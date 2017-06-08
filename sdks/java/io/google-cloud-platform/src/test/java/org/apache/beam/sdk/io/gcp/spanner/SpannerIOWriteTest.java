@@ -24,7 +24,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
-import com.google.api.core.ApiFuture;
 import com.google.cloud.ServiceFactory;
 import com.google.cloud.spanner.DatabaseClient;
 import com.google.cloud.spanner.DatabaseId;
@@ -37,7 +36,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import javax.annotation.concurrent.GuardedBy;
-
 import org.apache.beam.sdk.testing.NeedsRunner;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Create;
@@ -53,12 +51,9 @@ import org.junit.runners.JUnit4;
 import org.mockito.ArgumentMatcher;
 import org.mockito.Matchers;
 
-
-/**
- * Unit tests for {@link SpannerIO}.
- */
+/** Unit tests for {@link SpannerIO}. */
 @RunWith(JUnit4.class)
-public class SpannerIOTest implements Serializable {
+public class SpannerIOWriteTest implements Serializable {
   @Rule public final transient TestPipeline pipeline = TestPipeline.create();
   @Rule public transient ExpectedException thrown = ExpectedException.none();
 
@@ -124,7 +119,7 @@ public class SpannerIOTest implements Serializable {
             .withDatabaseId("test-database")
             .withBatchSizeBytes(1000000000)
             .withServiceFactory(serviceFactory);
-    SpannerIO.SpannerWriteFn writerFn = new SpannerIO.SpannerWriteFn(write);
+    SpannerWriteFn writerFn = new SpannerWriteFn(write);
     DoFnTester<Mutation, Void> fnTester = DoFnTester.of(writerFn);
     fnTester.processBundle(Arrays.asList(one, two));
 
@@ -150,7 +145,7 @@ public class SpannerIOTest implements Serializable {
             .withDatabaseId("test-database")
             .withBatchSizeBytes(batchSize)
             .withServiceFactory(serviceFactory);
-    SpannerIO.SpannerWriteFn writerFn = new SpannerIO.SpannerWriteFn(write);
+    SpannerWriteFn writerFn = new SpannerWriteFn(write);
     DoFnTester<Mutation, Void> fnTester = DoFnTester.of(writerFn);
     fnTester.processBundle(Arrays.asList(one, two, three));
 
@@ -173,7 +168,7 @@ public class SpannerIOTest implements Serializable {
             .withDatabaseId("test-database")
             .withBatchSizeBytes(0) // turn off batching.
             .withServiceFactory(serviceFactory);
-    SpannerIO.SpannerWriteFn writerFn = new SpannerIO.SpannerWriteFn(write);
+    SpannerWriteFn writerFn = new SpannerWriteFn(write);
     DoFnTester<Mutation, Void> fnTester = DoFnTester.of(writerFn);
     fnTester.processBundle(Arrays.asList(one, two));
 
@@ -205,10 +200,8 @@ public class SpannerIOTest implements Serializable {
         mockSpanners.add(mock(Spanner.class, withSettings().serializable()));
         mockDatabaseClients.add(mock(DatabaseClient.class, withSettings().serializable()));
       }
-      ApiFuture voidFuture = mock(ApiFuture.class, withSettings().serializable());
       when(mockSpanner().getDatabaseClient(Matchers.any(DatabaseId.class)))
           .thenReturn(mockDatabaseClient());
-      when(mockSpanner().closeAsync()).thenReturn(voidFuture);
     }
 
     DatabaseClient mockDatabaseClient() {
