@@ -9,6 +9,7 @@ import com.google.common.annotations.VisibleForTesting;
 /** A simplest read function implementation. Parallelism support is coming. */
 @VisibleForTesting
 class NaiveSpannerReadFn extends AbstractSpannerFn<Object, Struct> {
+  private static final long serialVersionUID = 7645917508410554173L;
 
   private final SpannerIO.Read config;
 

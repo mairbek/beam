@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 @VisibleForTesting
 class SpannerWriteFn extends AbstractSpannerFn<Mutation, Void> {
   private static final Logger LOG = LoggerFactory.getLogger(SpannerWriteFn.class);
+  private static final long serialVersionUID = 3222867799637693630L;
+
   private final SpannerIO.Write spec;
 
   // Current batch of mutations to be written.

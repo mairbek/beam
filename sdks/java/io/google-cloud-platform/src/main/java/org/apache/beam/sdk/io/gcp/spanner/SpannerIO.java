@@ -198,6 +198,9 @@ public class SpannerIO {
   @Experimental(Experimental.Kind.SOURCE_SINK)
   @AutoValue
   public abstract static class Read extends PTransform<PBegin, PCollection<Struct>> {
+
+    private static final long serialVersionUID = 3124449388202574415L;
+
     abstract SpannerConfig getSpannerConfig();
 
     @Nullable
@@ -383,6 +386,9 @@ public class SpannerIO {
   @AutoValue
   public abstract static class CreateTransaction
       extends PTransform<PBegin, PCollectionView<Transaction>> {
+
+    private static final long serialVersionUID = 9201734106453817417L;
+
     abstract SpannerConfig getSpannerConfig();
 
     @Nullable
@@ -468,6 +474,8 @@ public class SpannerIO {
   @Experimental(Experimental.Kind.SOURCE_SINK)
   @AutoValue
   public abstract static class Write extends PTransform<PCollection<Mutation>, PDone> {
+
+    private static final long serialVersionUID = 1920175411827980145L;
 
     abstract SpannerConfig getSpannerConfig();
 
