@@ -19,6 +19,7 @@ class CreateTransactionFn extends AbstractSpannerFn<Object, Transaction> {
   public void processElement(ProcessContext c) throws Exception {
     try (ReadOnlyTransaction readOnlyTransaction =
         databaseClient().readOnlyTransaction(config.getTimestampBound())) {
+      // Run a dummy sql statement to force the RPC and obtain the timestamp from the server.
       ResultSet resultSet = readOnlyTransaction.executeQuery(Statement.of("SELECT 1"));
       while (resultSet.next()) {
         // do nothing
