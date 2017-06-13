@@ -1,6 +1,5 @@
 package org.apache.beam.sdk.io.gcp.spanner;
 
-import com.google.cloud.ServiceOptions;
 import com.google.cloud.spanner.DatabaseClient;
 import com.google.cloud.spanner.DatabaseId;
 import com.google.cloud.spanner.Spanner;
@@ -20,15 +19,10 @@ abstract class AbstractSpannerFn<InputT, OutputT> extends DoFn<InputT, OutputT> 
   @Setup
   public void setup() throws Exception {
     SpannerConfig spannerConfig = getSpannerConfig();
-    SpannerOptions options = spannerConfig.getSpannerOptions();
+    SpannerOptions options = spannerConfig.buildSpannerOptions();
     spanner = options.getService();
-    String projectId =
-        spannerConfig.getProjectId() == null
-            ? ServiceOptions.getDefaultProjectId()
-            : spannerConfig.getProjectId();
-    databaseClient =
-        spanner.getDatabaseClient(
-            DatabaseId.of(projectId, spannerConfig.getInstanceId(), spannerConfig.getDatabaseId()));
+    databaseClient = spanner.getDatabaseClient(DatabaseId
+        .of(options.getProjectId(), spannerConfig.getInstanceId(), spannerConfig.getDatabaseId()));
   }
 
   @Teardown

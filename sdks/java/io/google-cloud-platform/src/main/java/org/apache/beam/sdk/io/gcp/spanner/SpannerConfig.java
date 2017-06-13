@@ -33,8 +33,11 @@ public abstract class SpannerConfig implements Serializable {
 
   abstract Builder toBuilder();
 
-  SpannerOptions getSpannerOptions() {
+  SpannerOptions buildSpannerOptions() {
     SpannerOptions.Builder builder = SpannerOptions.newBuilder();
+    if (getProjectId() != null) {
+      builder.setProjectId(getProjectId());
+    }
     if (getServiceFactory() != null) {
       builder.setServiceFactory(getServiceFactory());
     }
