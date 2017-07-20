@@ -653,7 +653,7 @@ public class SpannerIO {
     public PDone expand(PCollection<Mutation> input) {
       input
           .apply("To mutation group", ParDo.of(new ToMutationGroupFn()))
-          .apply("Write mutations to Cloud Spanner", ParDo.of(new SpannerWriteGroupFn(this)));
+          .apply("Write mutations to Cloud Spanner", new WriteGrouped(this));
       return PDone.in(input.getPipeline());
     }
 
@@ -676,7 +676,9 @@ public class SpannerIO {
     }
 
     @Override public PDone expand(PCollection<MutationGroup> input) {
-      input.apply("Write mutations to Cloud Spanner", ParDo.of(new SpannerWriteGroupFn(spec)));
+      input
+          .apply("Batch mutations", ParDo.of(new SizeBatchingFn(spec.getBatchSizeBytes())))
+          .apply("Flush batches", ParDo.of(new SpannerWriteGroupFn(spec.getSpannerConfig())));
       return PDone.in(input.getPipeline());
     }
   }
