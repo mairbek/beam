@@ -17,23 +17,12 @@
  */
 package org.apache.beam.sdk.io.gcp.spanner;
 
-import static org.apache.beam.sdk.transforms.display.DisplayDataMatchers.hasDisplayItem;
-import static org.hamcrest.Matchers.hasSize;
-import static org.junit.Assert.assertThat;
-import static org.mockito.Mockito.argThat;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-
 import com.google.cloud.spanner.DatabaseId;
 import com.google.cloud.spanner.Mutation;
 import com.google.common.collect.Iterables;
-import java.io.Serializable;
-import java.util.Arrays;
-
 import org.apache.beam.sdk.testing.NeedsRunner;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Create;
-import org.apache.beam.sdk.transforms.DoFnTester;
 import org.apache.beam.sdk.transforms.display.DisplayData;
 import org.apache.beam.sdk.values.PCollection;
 import org.junit.Before;
@@ -44,6 +33,13 @@ import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 import org.mockito.ArgumentMatcher;
+
+import java.io.Serializable;
+
+import static org.apache.beam.sdk.transforms.display.DisplayDataMatchers.hasDisplayItem;
+import static org.hamcrest.Matchers.hasSize;
+import static org.junit.Assert.assertThat;
+import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for {@link SpannerIO}.
@@ -126,101 +122,7 @@ public class SpannerIOWriteTest implements Serializable {
         .writeAtLeastOnce(argThat(new IterableOfSize(3)));
   }
 
-  @Test
-  public void batching() throws Exception {
-    MutationGroup one = g(Mutation.newInsertOrUpdateBuilder("test").set("one").to(1).build());
-    MutationGroup two = g(Mutation.newInsertOrUpdateBuilder("test").set("two").to(2).build());
-    SpannerIO.Write write =
-        SpannerIO.write()
-            .withProjectId("test-project")
-            .withInstanceId("test-instance")
-            .withDatabaseId("test-database")
-            .withBatchSizeBytes(1000000000)
-            .withServiceFactory(serviceFactory);
-    SpannerWriteGroupFn writerFn = new SpannerWriteGroupFn(write);
-    DoFnTester<MutationGroup, Void> fnTester = DoFnTester.of(writerFn);
-    fnTester.processBundle(Arrays.asList(one, two));
 
-    verify(serviceFactory.mockSpanner())
-        .getDatabaseClient(DatabaseId.of("test-project", "test-instance", "test-database"));
-    verify(serviceFactory.mockDatabaseClient(), times(1))
-        .writeAtLeastOnce(argThat(new IterableOfSize(2)));
-  }
-
-  @Test
-  public void batchingGroups() throws Exception {
-    MutationGroup one = g(Mutation.newInsertOrUpdateBuilder("test").set("one").to(1).build());
-    MutationGroup two = g(Mutation.newInsertOrUpdateBuilder("test").set("two").to(2).build());
-    MutationGroup three = g(Mutation.newInsertOrUpdateBuilder("test").set("three").to(3).build());
-
-    // Have a room to accumulate one more item.
-    long batchSize = MutationSizeEstimator.sizeOf(one) + 1;
-
-    SpannerIO.Write write =
-        SpannerIO.write()
-            .withProjectId("test-project")
-            .withInstanceId("test-instance")
-            .withDatabaseId("test-database")
-            .withBatchSizeBytes(batchSize)
-            .withServiceFactory(serviceFactory);
-    SpannerWriteGroupFn writerFn = new SpannerWriteGroupFn(write);
-    DoFnTester<MutationGroup, Void> fnTester = DoFnTester.of(writerFn);
-    fnTester.processBundle(Arrays.asList(one, two, three));
-
-    verify(serviceFactory.mockSpanner())
-        .getDatabaseClient(DatabaseId.of("test-project", "test-instance", "test-database"));
-    verify(serviceFactory.mockDatabaseClient(), times(1))
-        .writeAtLeastOnce(argThat(new IterableOfSize(2)));
-    verify(serviceFactory.mockDatabaseClient(), times(1))
-        .writeAtLeastOnce(argThat(new IterableOfSize(1)));
-  }
-
-  @Test
-  public void noBatching() throws Exception {
-    MutationGroup one = g(Mutation.newInsertOrUpdateBuilder("test").set("one").to(1).build());
-    MutationGroup two = g(Mutation.newInsertOrUpdateBuilder("test").set("two").to(2).build());
-    SpannerIO.Write write =
-        SpannerIO.write()
-            .withProjectId("test-project")
-            .withInstanceId("test-instance")
-            .withDatabaseId("test-database")
-            .withBatchSizeBytes(0) // turn off batching.
-            .withServiceFactory(serviceFactory);
-    SpannerWriteGroupFn writerFn = new SpannerWriteGroupFn(write);
-    DoFnTester<MutationGroup, Void> fnTester = DoFnTester.of(writerFn);
-    fnTester.processBundle(Arrays.asList(one, two));
-
-    verify(serviceFactory.mockSpanner())
-        .getDatabaseClient(DatabaseId.of("test-project", "test-instance", "test-database"));
-    verify(serviceFactory.mockDatabaseClient(), times(2))
-        .writeAtLeastOnce(argThat(new IterableOfSize(1)));
-  }
-
-  @Test
-  public void groups() throws Exception {
-    Mutation one = Mutation.newInsertOrUpdateBuilder("test").set("one").to(1).build();
-    Mutation two = Mutation.newInsertOrUpdateBuilder("test").set("two").to(2).build();
-    Mutation three = Mutation.newInsertOrUpdateBuilder("test").set("three").to(3).build();
-
-    // Smallest batch size
-    long batchSize = 1;
-
-    SpannerIO.Write write =
-        SpannerIO.write()
-            .withProjectId("test-project")
-            .withInstanceId("test-instance")
-            .withDatabaseId("test-database")
-            .withBatchSizeBytes(batchSize)
-            .withServiceFactory(serviceFactory);
-    SpannerWriteGroupFn writerFn = new SpannerWriteGroupFn(write);
-    DoFnTester<MutationGroup, Void> fnTester = DoFnTester.of(writerFn);
-    fnTester.processBundle(Arrays.asList(g(one, two, three)));
-
-    verify(serviceFactory.mockSpanner())
-        .getDatabaseClient(DatabaseId.of("test-project", "test-instance", "test-database"));
-    verify(serviceFactory.mockDatabaseClient(), times(1))
-        .writeAtLeastOnce(argThat(new IterableOfSize(3)));
-  }
 
   @Test
   public void displayData() throws Exception {
