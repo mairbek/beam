@@ -60,12 +60,12 @@ public class SpannerWriteIT {
   /** Pipeline options for this test. */
   public interface SpannerTestPipelineOptions extends TestPipelineOptions {
     @Description("Instance ID to write to in Spanner")
-    @Default.String("beam-test")
+    @Default.String("my-demo")
     String getInstanceId();
     void setInstanceId(String value);
 
     @Description("Database ID prefix to write to in Spanner")
-    @Default.String("beam-testdb")
+    @Default.String("beamit")
     String getDatabaseIdPrefix();
     void setDatabaseIdPrefix(String value);
 
@@ -119,7 +119,8 @@ public class SpannerWriteIT {
 
   @Test
   public void testWrite() throws Exception {
-    p.apply(GenerateSequence.from(0).to(100))
+    int numRecords = 100;
+    p.apply(GenerateSequence.from(0).to(numRecords))
         .apply(ParDo.of(new GenerateMutations(options.getTable())))
         .apply(
             SpannerIO.write()
@@ -138,7 +139,7 @@ public class SpannerWriteIT {
             .singleUse()
             .executeQuery(Statement.of("SELECT COUNT(*) FROM " + options.getTable()));
     assertThat(resultSet.next(), is(true));
-    assertThat(resultSet.getLong(0), equalTo(100L));
+    assertThat(resultSet.getLong(0), equalTo((long) numRecords));
     assertThat(resultSet.next(), is(false));
   }
 

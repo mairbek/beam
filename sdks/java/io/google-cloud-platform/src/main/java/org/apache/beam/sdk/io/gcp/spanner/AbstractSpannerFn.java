@@ -44,6 +44,9 @@ abstract class AbstractSpannerFn<InputT, OutputT> extends DoFn<InputT, OutputT> 
     if (spannerConfig.getProjectId() != null) {
       builder.setProjectId(spannerConfig.getProjectId().get());
     }
+    if (spannerConfig.getHost() != null) {
+      builder.setHost(spannerConfig.getHost());
+    }
     if (spannerConfig.getServiceFactory() != null) {
       builder.setServiceFactory(spannerConfig.getServiceFactory());
     }
