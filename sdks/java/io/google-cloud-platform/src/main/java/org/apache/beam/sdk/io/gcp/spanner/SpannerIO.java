@@ -677,7 +677,9 @@ public class SpannerIO {
 
     @Override public PDone expand(PCollection<MutationGroup> input) {
       input
-          .apply("Batch mutations", ParDo.of(new SizeBatchingFn(spec.getBatchSizeBytes())))
+//          .apply("Batch mutations", ParDo.of(new SizeBatchingFn(spec.getBatchSizeBytes())))
+          .apply("Batch mutations", new SampleBasedPreprocessor(spec.getSpannerConfig(),
+              1000, spec.getBatchSizeBytes()))
           .apply("Flush batches", ParDo.of(new SpannerWriteGroupFn(spec.getSpannerConfig())));
       return PDone.in(input.getPipeline());
     }
