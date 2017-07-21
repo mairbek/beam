@@ -60,12 +60,12 @@ public class SpannerWriteIT {
   /** Pipeline options for this test. */
   public interface SpannerTestPipelineOptions extends TestPipelineOptions {
     @Description("Instance ID to write to in Spanner")
-    @Default.String("beam-test")
+    @Default.String("my-demo")
     String getInstanceId();
     void setInstanceId(String value);
 
     @Description("Database ID prefix to write to in Spanner")
-    @Default.String("beam-testdb")
+    @Default.String("beamit")
     String getDatabaseIdPrefix();
     void setDatabaseIdPrefix(String value);
 
