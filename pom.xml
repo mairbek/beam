@@ -1772,7 +1772,7 @@
             <configuration>
               <!-- Ignore runtime-only dependencies in analysis -->
               <ignoreNonCompile>true</ignoreNonCompile>
-              <failOnWarning>true</failOnWarning>
+              <failOnWarning>false</failOnWarning>
             </configuration>
           </execution>
         </executions>
