@@ -44,6 +44,9 @@ public abstract class SpannerConfig implements Serializable {
   abstract ValueProvider<String> getDatabaseId();
 
   @Nullable
+  abstract String getHost();
+
+  @Nullable
   @VisibleForTesting
   abstract ServiceFactory<Spanner, SpannerOptions> getServiceFactory();
 
@@ -53,6 +56,9 @@ public abstract class SpannerConfig implements Serializable {
     SpannerOptions.Builder builder = SpannerOptions.newBuilder();
     if (getProjectId() != null) {
       builder.setProjectId(getProjectId().get());
+    }
+    if (getHost() != null) {
+      builder.setHost(getHost());
     }
     if (getServiceFactory() != null) {
       builder.setServiceFactory(getServiceFactory());
@@ -100,6 +106,8 @@ public abstract class SpannerConfig implements Serializable {
 
     abstract Builder setDatabaseId(ValueProvider<String> databaseId);
 
+    abstract Builder setHost(String host);
+
     abstract Builder setServiceFactory(ServiceFactory<Spanner, SpannerOptions> serviceFactory);
 
     public abstract SpannerConfig build();
@@ -127,6 +135,10 @@ public abstract class SpannerConfig implements Serializable {
 
   public SpannerConfig withDatabaseId(String databaseId) {
     return withDatabaseId(ValueProvider.StaticValueProvider.of(databaseId));
+  }
+
+  public SpannerConfig withHost(String host) {
+    return toBuilder().setHost(host).build();
   }
 
   @VisibleForTesting
