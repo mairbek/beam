@@ -210,9 +210,10 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
       for (MutationGroup mg : element.getValue()) {
         mutations.add(mg);
         batchSizeBytes += MutationSizeEstimator.sizeOf(mg);
-        if (batchSizeBytes >= maxBatchSizeBytes) {
+        if (batchSizeBytes >= maxBatchSizeBytes || mutations.size() > 1500) {
           c.output(mutations);
           mutations = new ArrayList<>();
+          batchSizeBytes = 0;
         }
       }
     }
@@ -221,6 +222,7 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
     public void finishBundle(FinishBundleContext c) throws Exception {
       if (!mutations.isEmpty()) {
         c.output(mutations, GlobalWindow.INSTANCE.maxTimestamp(), GlobalWindow.INSTANCE);
+        batchSizeBytes = 0;
       }
     }
 

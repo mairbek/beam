@@ -48,6 +48,7 @@ public class SizeBatchingFn extends DoFn<MutationGroup, Iterable<MutationGroup>>
     if (batchSizeBytes >= maxBatchSizeBytes) {
       c.output(mutations);
       mutations = new ArrayList<>();
+      batchSizeBytes = 0;
     }
   }
 
@@ -55,6 +56,7 @@ public class SizeBatchingFn extends DoFn<MutationGroup, Iterable<MutationGroup>>
   public void finishBundle(FinishBundleContext c) throws Exception {
     if (!mutations.isEmpty()) {
       c.output(mutations, GlobalWindow.INSTANCE.maxTimestamp(), GlobalWindow.INSTANCE);
+      batchSizeBytes = 0;
     }
   }
 }
