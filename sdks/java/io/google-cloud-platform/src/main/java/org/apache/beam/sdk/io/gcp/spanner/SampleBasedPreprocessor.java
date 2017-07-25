@@ -38,11 +38,11 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
     final PCollectionView<Map<String, List<KeyPart>>> pkView = pk
         .apply("Primary key view", View.<Map<String, List<KeyPart>>>asSingleton());
 
-    PCollectionView<List<KV<String, Key>>> sample = input
+    PCollectionView<List<SampleKey>> sample = input
         .apply("Calculate keys", ParDo.of(new ExtractKeyFn(pkView)).withSideInputs(pkView))
-        .apply("Sample keys", Sample.<KV<String, Key>>fixedSizeGlobally(numSamples))
-        .apply("Sort keys", ParDo.of(new SortSampleFn(pkView)).withSideInputs(pkView))
-        .apply("Keys sample as view", View.<List<KV<String, Key>>>asSingleton());
+        .apply("Sample keys", Combine.globally(ApproximateQuantiles.ApproximateQuantilesCombineFn.create
+                (numSamples, new Top.Natural<SampleKey>(), (long) 1e5, 1. / numSamples)))
+        .apply("Keys sample as view", View.<List<SampleKey>>asSingleton());
 
     return input
         .apply("Partition input",
@@ -92,7 +92,7 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
   }
 
 
-  private static class ExtractKeyFn extends DoFn<MutationGroup, KV<String, Key>> {
+  private static class ExtractKeyFn extends DoFn<MutationGroup, SampleKey> {
     final PCollectionView<Map<String, List<KeyPart>>> pkView;
 
     private ExtractKeyFn(PCollectionView<Map<String, List<KeyPart>>> pkView) {
@@ -103,27 +103,10 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
     public void processElement(ProcessContext c) {
       Mutation m = c.element().primary();
       Map<String, List<KeyPart>> pkMapping = c.sideInput(pkView);
-      c.output(KV.of(m.getTable(), keyOf(m, pkMapping)));
+      Key key = keyOf(m, pkMapping);
+      String table = m.getTable();
+      c.output(SampleKey.create(table, key, pkMapping.get(table)));
     }
-  }
-
-  private static class SortSampleFn extends DoFn<Iterable<KV<String, Key>>, List<KV<String, Key>>> {
-    final PCollectionView<Map<String, List<KeyPart>>> pkView;
-
-    private SortSampleFn(PCollectionView<Map<String, List<KeyPart>>> pkView) {
-      this.pkView = pkView;
-    }
-
-    @ProcessElement
-    public void processElement(ProcessContext c) {
-      List<KV<String, Key>> result = new ArrayList<>();
-      Iterables.addAll(result, c.element());
-
-      Map<String, List<KeyPart>> pkMapping = c.sideInput(pkView);
-      Collections.sort(result, new TabledKeyComparator(pkMapping));
-      c.output(result);
-    }
-
   }
 
   private static class TabledKeyComparator implements Comparator<KV<String, Key>> {
@@ -163,10 +146,10 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
   }
 
   private static class PartitionFn extends DoFn<MutationGroup, KV<Integer, MutationGroup>> {
-    final PCollectionView<List<KV<String, Key>>> sampleView;
+    final PCollectionView<List<SampleKey>> sampleView;
     final PCollectionView<Map<String, List<KeyPart>>> pkView;
 
-    public PartitionFn(PCollectionView<List<KV<String, Key>>> sampleView,
+    public PartitionFn(PCollectionView<List<SampleKey>> sampleView,
         PCollectionView<Map<String, List<KeyPart>>> pkView) {
       this.sampleView = sampleView;
       this.pkView = pkView;
@@ -174,12 +157,14 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
 
     @ProcessElement
     public void processElement(ProcessContext c) {
-      List<KV<String, Key>> sample = c.sideInput(sampleView);
+      List<SampleKey> sample = c.sideInput(sampleView);
       Map<String, List<KeyPart>> pkMapping = c.sideInput(pkView);
 
       MutationGroup g = c.element();
-      KV<String, Key> key = KV.of(g.primary().getTable(), keyOf(g.primary(), pkMapping));
-      int partition = Collections.binarySearch(sample, key, new TabledKeyComparator(pkMapping));
+      Key key = keyOf(g.primary(), pkMapping);
+      String table = g.primary().getTable();
+      SampleKey sampleKey = SampleKey.create(table, key, pkMapping.get(table));
+      int partition = Collections.binarySearch(sample, sampleKey);
       c.output(KV.of(partition, g));
     }
 

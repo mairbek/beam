@@ -49,7 +49,7 @@ public class ImportLoadTest implements Serializable {
     void setTable(String value);
 
     @Description("Number of shards to generate mutations")
-    @Default.Integer(1000)
+    @Default.Integer(3000)
     Integer getNumberOfShards();
     void setNumberOfShards(Integer numberOfShards);
 
