@@ -213,6 +213,7 @@ public class SpannerIO {
     return new AutoValue_SpannerIO_Write.Builder()
         .setSpannerConfig(SpannerConfig.create())
         .setBatchSizeBytes(DEFAULT_BATCH_SIZE_BYTES)
+        .setPresortingEnabled(false)
         .build();
   }
 
@@ -576,6 +577,8 @@ public class SpannerIO {
 
     abstract long getBatchSizeBytes();
 
+    abstract boolean isPresortingEnabled();
+
     abstract Builder toBuilder();
 
     @AutoValue.Builder
@@ -584,6 +587,8 @@ public class SpannerIO {
       abstract Builder setSpannerConfig(SpannerConfig spannerConfig);
 
       abstract Builder setBatchSizeBytes(long batchSizeBytes);
+
+      abstract Builder setPresortingEnabled(boolean preprocessingEnabled);
 
       abstract Write build();
     }
@@ -624,6 +629,11 @@ public class SpannerIO {
     public Write withDatabaseId(ValueProvider<String> databaseId) {
       SpannerConfig config = getSpannerConfig();
       return withSpannerConfig(config.withDatabaseId(databaseId));
+    }
+
+    /** If selected enables presorting */
+    public Write withPresorting() {
+      return toBuilder().setPresortingEnabled(true).build();
     }
 
     @VisibleForTesting

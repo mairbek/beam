@@ -4,7 +4,6 @@ import com.google.cloud.spanner.Key;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Type;
 import com.google.cloud.spanner.Value;
-import com.google.common.collect.Iterables;
 import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
 import org.apache.beam.sdk.values.KV;
@@ -12,7 +11,10 @@ import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionView;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGroup>,
     PCollection<Iterable<MutationGroup>>> {
@@ -32,6 +34,10 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
   public PCollection<Iterable<MutationGroup>> expand(PCollection<MutationGroup> input) {
     PBegin begin = input.getPipeline().begin();
 
+    Combine.Globally<SampleKey, List<SampleKey>> approximateQuantiles = Combine.globally(
+        ApproximateQuantiles.ApproximateQuantilesCombineFn
+            .create(numSamples, new Top.Natural<SampleKey>(), (long) 1e5, 1. / numSamples));
+
     PCollection<Map<String, List<KeyPart>>> pk = begin.apply(Create.of((Void) null))
         .apply("Read information schema", ParDo.of(new ReadPkInfo(config)));
 
@@ -40,8 +46,7 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
 
     PCollectionView<List<SampleKey>> sample = input
         .apply("Calculate keys", ParDo.of(new ExtractKeyFn(pkView)).withSideInputs(pkView))
-        .apply("Sample keys", Combine.globally(ApproximateQuantiles.ApproximateQuantilesCombineFn.create
-                (numSamples, new Top.Natural<SampleKey>(), (long) 1e5, 1. / numSamples)))
+        .apply("Sample keys", approximateQuantiles)
         .apply("Keys sample as view", View.<List<SampleKey>>asSingleton());
 
     return input
@@ -109,42 +114,6 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
     }
   }
 
-  private static class TabledKeyComparator implements Comparator<KV<String, Key>> {
-    private final Map<String, List<KeyPart>> pkMapping;
-
-    private TabledKeyComparator(Map<String, List<KeyPart>> pkMapping) {
-      this.pkMapping = pkMapping;
-    }
-
-    @Override
-    public int compare(KV<String, Key> a, KV<String, Key> b) {
-      int result = a.getKey().compareTo(b.getKey());
-      if (result != 0) {
-        return result;
-      }
-
-      Iterator<Object> ai = a.getValue().getParts().iterator();
-      Iterator<Object> bi = b.getValue().getParts().iterator();
-      List<KeyPart> parts = pkMapping.get(a.getKey());
-      for (KeyPart part : parts) {
-        Object ao = ai.next();
-        Object bo = bi.next();
-        if (ao == null) {
-          // Verify
-          result = bo == null ? 0 : -1;
-        } else if (bo == null) {
-          result = 1;
-        } else {
-          result = ((Comparable) ao).compareTo(bo);
-        }
-        if (result != 0) {
-          return result * (part.isDesc() ? - 1 : 1);
-        }
-      }
-      return 0;
-    }
-  }
-
   private static class PartitionFn extends DoFn<MutationGroup, KV<Integer, MutationGroup>> {
     final PCollectionView<List<SampleKey>> sampleView;
     final PCollectionView<Map<String, List<KeyPart>>> pkView;
@@ -167,7 +136,6 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
       int partition = Collections.binarySearch(sample, sampleKey);
       c.output(KV.of(partition, g));
     }
-
 
   }
 
@@ -195,7 +163,7 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
       for (MutationGroup mg : element.getValue()) {
         mutations.add(mg);
         batchSizeBytes += MutationSizeEstimator.sizeOf(mg);
-        if (batchSizeBytes >= maxBatchSizeBytes || mutations.size() > 1500) {
+        if (batchSizeBytes >= maxBatchSizeBytes || mutations.size() > 1000) {
           c.output(mutations);
           mutations = new ArrayList<>();
           batchSizeBytes = 0;

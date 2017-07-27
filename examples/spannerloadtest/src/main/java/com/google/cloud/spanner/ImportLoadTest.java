@@ -1,6 +1,5 @@
 package com.google.cloud.spanner;
 
-import com.google.cloud.ServiceFactory;
 import com.google.common.collect.ContiguousSet;
 import com.google.common.collect.DiscreteDomain;
 import com.google.common.collect.Range;
@@ -49,7 +48,7 @@ public class ImportLoadTest implements Serializable {
     void setTable(String value);
 
     @Description("Number of shards to generate mutations")
-    @Default.Integer(3000)
+    @Default.Integer(2000)
     Integer getNumberOfShards();
     void setNumberOfShards(Integer numberOfShards);
 
@@ -149,12 +148,11 @@ public class ImportLoadTest implements Serializable {
 
     @ProcessElement
     public void processElement(ProcessContext c) {
-      Integer seed = c.element();
-      Random random = new Random(seed);
-
+      Integer shard = c.element();
       for (int i = 0; i < numMutations; i++) {
         Mutation.WriteBuilder builder = Mutation.newInsertOrUpdateBuilder(table);
-        builder.set("Key").to(random.nextLong());
+        long key = ((long) shard) * numMutations + i;
+        builder.set("Key").to(key);
         for (int field = 0; field < numFields; field++) {
           builder.set("Field" + field).to(randomAlphaNumeric(size));
         }
