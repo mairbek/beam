@@ -4,21 +4,21 @@ import com.google.cloud.spanner.Key;
 import com.google.cloud.spanner.Mutation;
 import com.google.cloud.spanner.Type;
 import com.google.cloud.spanner.Value;
+import com.google.common.primitives.UnsignedBytes;
+import org.apache.beam.sdk.io.TextIO;
 import org.apache.beam.sdk.transforms.*;
-import org.apache.beam.sdk.transforms.windowing.GlobalWindow;
 import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionView;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.io.Serializable;
+import java.util.*;
 
 public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGroup>,
     PCollection<Iterable<MutationGroup>>> {
 
+  public static final Comparator<byte[]> COMPARATOR = UnsignedBytes.lexicographicalComparator();
   private final SpannerConfig config;
   private final int numSamples;
   private final long maxBatchSizeBytes;
@@ -30,13 +30,21 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
     this.maxBatchSizeBytes = maxBatchSizeBytes;
   }
 
+  private enum MyComparator implements Comparator<byte[]>, Serializable {
+    INSTANCE {
+      @Override public int compare(byte[] o1, byte[] o2) {
+        return COMPARATOR.compare(o1, o2);
+      }
+    }
+  }
+
   @Override
   public PCollection<Iterable<MutationGroup>> expand(PCollection<MutationGroup> input) {
     PBegin begin = input.getPipeline().begin();
 
-    Combine.Globally<SampleKey, List<SampleKey>> approximateQuantiles = Combine.globally(
+    Combine.Globally<byte[], List<byte[]>> approximateQuantiles = Combine.globally(
         ApproximateQuantiles.ApproximateQuantilesCombineFn
-            .create(numSamples, new Top.Natural<SampleKey>(), (long) 1e5, 1. / numSamples));
+            .create(numSamples, MyComparator.INSTANCE, (long) 1e6, 1. / numSamples));
 
     PCollection<Map<String, List<KeyPart>>> pk = begin.apply(Create.of((Void) null))
         .apply("Read information schema", ParDo.of(new ReadPkInfo(config)));
@@ -44,16 +52,41 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
     final PCollectionView<Map<String, List<KeyPart>>> pkView = pk
         .apply("Primary key view", View.<Map<String, List<KeyPart>>>asSingleton());
 
-    PCollectionView<List<SampleKey>> sample = input
+    PCollection<List<byte[]>> values = input
         .apply("Calculate keys", ParDo.of(new ExtractKeyFn(pkView)).withSideInputs(pkView))
-        .apply("Sample keys", approximateQuantiles)
-        .apply("Keys sample as view", View.<List<SampleKey>>asSingleton());
+        .apply("Sample keys", approximateQuantiles);
+    PCollectionView<List<byte[]>> sample = values
+        .apply("Keys sample as view", View.<List<byte[]>>asSingleton());
 
-    return input
-        .apply("Partition input",
-            ParDo.of(new PartitionFn(sample, pkView)).withSideInputs(sample, pkView))
+    values.apply(ParDo.of(new DoFn<List<byte[]>, String>() {
+      @ProcessElement
+      public void processElement(ProcessContext c) {
+        List<byte[]> element = c.element();
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (byte[] value : element) {
+          if (first) {
+            first = false;
+          } else {
+            sb.append("\n");
+          }
+          OrderedCode code = new OrderedCode(value);
+
+          String table = new String(code.readBytes());
+          long val = code.readSignedNumIncreasing();
+          sb.append(table).append(",").append(val);
+        }
+        c.output(sb.toString());
+      }
+
+    })).apply(TextIO.write().to("gs://mairbek/one"));
+
+
+    PCollection<Iterable<MutationGroup>> result = input.apply("Partition input",
+        ParDo.of(new PartitionFn(sample, pkView)).withSideInputs(sample, pkView))
         .apply("Group by partition", GroupByKey.<Integer, MutationGroup>create())
         .apply("Presort and batch", ParDo.of(new PresortAndBatchFn(maxBatchSizeBytes)));
+    return result;
   }
 
   private static Key keyOf(Mutation m, Map<String, List<KeyPart>> mapping) {
@@ -97,7 +130,7 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
   }
 
 
-  private static class ExtractKeyFn extends DoFn<MutationGroup, SampleKey> {
+  private static class ExtractKeyFn extends DoFn<MutationGroup, byte[]> {
     final PCollectionView<Map<String, List<KeyPart>>> pkView;
 
     private ExtractKeyFn(PCollectionView<Map<String, List<KeyPart>>> pkView) {
@@ -110,15 +143,15 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
       Map<String, List<KeyPart>> pkMapping = c.sideInput(pkView);
       Key key = keyOf(m, pkMapping);
       String table = m.getTable();
-      c.output(SampleKey.create(table, key, pkMapping.get(table)));
+      c.output(KeyCoder.encode(table, key, pkMapping.get(table)));
     }
   }
 
   private static class PartitionFn extends DoFn<MutationGroup, KV<Integer, MutationGroup>> {
-    final PCollectionView<List<SampleKey>> sampleView;
+    final PCollectionView<List<byte[]>> sampleView;
     final PCollectionView<Map<String, List<KeyPart>>> pkView;
 
-    public PartitionFn(PCollectionView<List<SampleKey>> sampleView,
+    public PartitionFn(PCollectionView<List<byte[]>> sampleView,
         PCollectionView<Map<String, List<KeyPart>>> pkView) {
       this.sampleView = sampleView;
       this.pkView = pkView;
@@ -126,17 +159,16 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
 
     @ProcessElement
     public void processElement(ProcessContext c) {
-      List<SampleKey> sample = c.sideInput(sampleView);
+      List<byte[]> sample = c.sideInput(sampleView);
       Map<String, List<KeyPart>> pkMapping = c.sideInput(pkView);
 
       MutationGroup g = c.element();
       Key key = keyOf(g.primary(), pkMapping);
       String table = g.primary().getTable();
-      SampleKey sampleKey = SampleKey.create(table, key, pkMapping.get(table));
-      int partition = Collections.binarySearch(sample, sampleKey);
+      byte[] sampleKey = KeyCoder.encode(table, key, pkMapping.get(table));
+      int partition = Math.abs(Collections.binarySearch(sample, sampleKey, MyComparator.INSTANCE));
       c.output(KV.of(partition, g));
     }
-
   }
 
   private static class PresortAndBatchFn
@@ -169,15 +201,11 @@ public class SampleBasedPreprocessor extends PTransform<PCollection<MutationGrou
           batchSizeBytes = 0;
         }
       }
-    }
-
-    @FinishBundle
-    public void finishBundle(FinishBundleContext c) throws Exception {
       if (!mutations.isEmpty()) {
-        c.output(mutations, GlobalWindow.INSTANCE.maxTimestamp(), GlobalWindow.INSTANCE);
+        c.output(mutations);
         batchSizeBytes = 0;
       }
     }
-
+    
   }
 }

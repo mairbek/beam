@@ -21,7 +21,7 @@ public class ImportLoadTest implements Serializable {
 
   public interface Options extends PipelineOptions {
     @Description("Create a sample database")
-    @Default.Boolean(true)
+    @Default.Boolean(false)
     boolean isCreateDatabase();
 
     void setCreateDatabase(boolean createDatabase);
