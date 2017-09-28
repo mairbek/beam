@@ -144,6 +144,9 @@ public abstract class SpannerConfig implements Serializable {
     if (getServiceFactory() != null) {
       builder.setServiceFactory(this.getServiceFactory());
     }
+    if (getHost() != null) {
+      builder.setHost(this.getHost());
+    }
     ReleaseInfo releaseInfo = ReleaseInfo.getReleaseInfo();
     builder.setUserAgentPrefix(USER_AGENT_PREFIX + "/" + releaseInfo.getVersion());
     SpannerOptions options = builder.build();
