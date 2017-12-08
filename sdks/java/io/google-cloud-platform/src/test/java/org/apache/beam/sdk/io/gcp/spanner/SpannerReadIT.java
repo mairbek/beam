@@ -60,7 +60,7 @@ public class SpannerReadIT {
   /** Pipeline options for this test. */
   public interface SpannerTestPipelineOptions extends TestPipelineOptions {
     @Description("Instance ID to write to in Spanner")
-    @Default.String("beam-test")
+    @Default.String("mairbekdf")
     String getInstanceId();
     void setInstanceId(String value);
 
@@ -88,7 +88,7 @@ public class SpannerReadIT {
 
     project = options.as(GcpOptions.class).getProject();
 
-    spanner = SpannerOptions.newBuilder().setProjectId(project).build().getService();
+    spanner = SpannerOptions.newBuilder().setProjectId(project).setHost("https://staging-wrenchworks.sandbox.googleapis.com").build().getService();
 
     databaseName = generateDatabaseName();
 
@@ -132,6 +132,7 @@ public class SpannerReadIT {
     databaseClient.writeAtLeastOnce(mutations);
 
     SpannerConfig spannerConfig = SpannerConfig.create()
+        .withHost("https://staging-wrenchworks.sandbox.googleapis.com")
         .withProjectId(project)
         .withInstanceId(options.getInstanceId())
         .withDatabaseId(databaseName);
